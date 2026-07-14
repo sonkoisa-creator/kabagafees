@@ -1687,8 +1687,12 @@ function ensureDataShape(){
 
 async function loadDB(){
   let loadedFromCloud = false;
+  // Race Supabase load against a 6-second timeout so a slow connection
+  // never leaves the page hanging on startup.
   try{
-    const { data: row, error } = await sb.from('app_state').select('data').eq('id','main').maybeSingle();
+    const timeout = new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),6000));
+    const fetch = sb.from('app_state').select('data').eq('id','main').maybeSingle();
+    const { data: row, error } = await Promise.race([fetch, timeout.then(()=>{throw new Error('timeout')})]);
     if(!error && row && row.data && Object.keys(row.data).length>0){
       DB = row.data;
       ensureDataShape();
@@ -1696,7 +1700,7 @@ async function loadDB(){
       try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
     }
   }catch(e){
-    console.error('Could not reach the server, using local cache', e);
+    console.warn('Could not load from server (using local cache):', e.message);
   }
   if(!loadedFromCloud){
     try{
@@ -1704,19 +1708,23 @@ async function loadDB(){
       if(raw){
         DB = JSON.parse(raw);
         ensureDataShape();
+        // Flag that local data needs pushing to the server when possible.
+        localStorage.setItem(PENDING_SYNC_KEY, '1');
       } else {
         DB = defaultData();
+        saveDB();
       }
     }catch(e){
       console.error('Failed to load data, using defaults', e);
       DB = defaultData();
+      saveDB();
     }
-    saveDB();
   }
 }
 
 const PENDING_SYNC_KEY = 'kabaga_pending_sync_v1';
 let syncInProgress = false;
+let syncRetryTimer = null;
 
 function saveDB(){
   try{
@@ -1726,48 +1734,92 @@ function saveDB(){
     showToast('Could not save data locally — storage may be blocked or full.', 'error');
     showStorageWarningBanner();
   }
+  // Always mark a sync as needed, then attempt it.
+  localStorage.setItem(PENDING_SYNC_KEY, '1');
   syncToServer();
 }
 
 function syncToServer(){
-  if(syncInProgress) { localStorage.setItem(PENDING_SYNC_KEY, '1'); return; }
+  // Guard: Supabase library may not have loaded yet (e.g. slow internet on startup).
+  if(typeof sb === 'undefined' || !sb){
+    scheduleRetry();
+    return;
+  }
+  if(!navigator.onLine){
+    updateSyncIndicator(false);
+    return;
+  }
+  if(syncInProgress){
+    // Another sync is in flight — it will re-check PENDING_SYNC_KEY when it finishes.
+    return;
+  }
+  if(!localStorage.getItem(PENDING_SYNC_KEY)) return; // nothing pending, skip
   syncInProgress = true;
-  sb.from('app_state').upsert({ id:'main', data: DB, updated_at: new Date().toISOString() })
+  updateSyncIndicator('saving');
+  sb.from('app_state')
+    .upsert({ id:'main', data: DB, updated_at: new Date().toISOString() })
     .then(({error})=>{
       syncInProgress = false;
       if(error){
-        localStorage.setItem(PENDING_SYNC_KEY, '1');
+        console.warn('Sync error:', error.message);
         updateSyncIndicator(false);
+        scheduleRetry(10000);
       } else {
         localStorage.removeItem(PENDING_SYNC_KEY);
         updateSyncIndicator(true);
+        // If another save happened while this one was in flight, sync again immediately.
+        if(localStorage.getItem(PENDING_SYNC_KEY)) syncToServer();
       }
+    })
+    .catch(err=>{
+      syncInProgress = false;
+      console.warn('Sync failed:', err);
+      updateSyncIndicator(false);
+      scheduleRetry(10000);
     });
 }
 
-function updateSyncIndicator(online){
+function scheduleRetry(ms=5000){
+  if(syncRetryTimer) clearTimeout(syncRetryTimer);
+  syncRetryTimer = setTimeout(()=>{ syncRetryTimer=null; syncToServer(); }, ms);
+}
+
+function updateSyncIndicator(state){
+  // Also update the header sync pill.
+  const hdrSync = document.getElementById('hdr-sync');
   let el = document.getElementById('sync-indicator');
   if(!el){
     el = document.createElement('div');
     el.id = 'sync-indicator';
-    el.style.cssText = 'position:fixed;bottom:10px;right:10px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;z-index:99999;font-family:inherit;';
+    el.style.cssText = 'position:fixed;bottom:10px;right:10px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;z-index:99999;font-family:inherit;transition:opacity 0.5s;';
     document.body.appendChild(el);
   }
-  if(online){
+  if(state==='saving'){
+    el.style.opacity='1';
+    el.textContent = '↑ Saving…';
+    el.style.background='#EEF2FB'; el.style.color='#1B2C5E';
+    if(hdrSync){ hdrSync.textContent='🔄 Syncing…'; }
+  } else if(state===true){
     el.textContent = '☁ Synced';
-    el.style.background = '#E7F1E5'; el.style.color = '#2F6B3A';
+    el.style.background='#E7F1E5'; el.style.color='#2F6B3A';
+    el.style.opacity='1';
     setTimeout(()=>{ if(el.textContent==='☁ Synced') el.style.opacity='0.3'; }, 2500);
+    if(hdrSync){ hdrSync.textContent='🟢 Synced'; }
   } else {
-    el.style.opacity = '1';
-    el.textContent = '⚠ Offline — changes saved on this device, will sync automatically';
-    el.style.background = '#FBEAEA'; el.style.color = '#A33345';
+    el.style.opacity='1';
+    el.textContent='⚠ Offline — changes saved here, will sync when reconnected';
+    el.style.background='#FBEAEA'; el.style.color='#A33345';
+    if(hdrSync){ hdrSync.textContent='🟡 Offline'; }
   }
 }
 
-// Retry any unsynced changes automatically when the connection returns,
-// when the app first opens, and periodically as a safety net.
-window.addEventListener('online', ()=>{ if(localStorage.getItem(PENDING_SYNC_KEY)) syncToServer(); });
-setInterval(()=>{ if(localStorage.getItem(PENDING_SYNC_KEY) && navigator.onLine) syncToServer(); }, 15000);
+// Retry automatically when internet returns, and every 15s as a safety net.
+window.addEventListener('online', ()=>{
+  if(localStorage.getItem(PENDING_SYNC_KEY)) syncToServer();
+});
+setInterval(()=>{
+  if(localStorage.getItem(PENDING_SYNC_KEY) && navigator.onLine && !syncInProgress) syncToServer();
+}, 15000);
 
 function showStorageWarningBanner(){
   if(document.getElementById('storage-warning-banner')) return;

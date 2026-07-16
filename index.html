@@ -1695,6 +1695,7 @@ async function loadDB(){
     const { data: row, error } = await Promise.race([fetch, timeout.then(()=>{throw new Error('timeout')})]);
     if(!error && row && row.data && Object.keys(row.data).length>0){
       DB = row.data;
+      lastServerTimestamp = row.updated_at || null;
       ensureDataShape();
       loadedFromCloud = true;
       try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
@@ -1813,13 +1814,51 @@ function updateSyncIndicator(state){
   }
 }
 
-// Retry automatically when internet returns, and every 15s as a safety net.
+// Retry sync automatically when internet returns, and every 15s as a safety net.
 window.addEventListener('online', ()=>{
   if(localStorage.getItem(PENDING_SYNC_KEY)) syncToServer();
+  pollForRemoteChanges();
 });
 setInterval(()=>{
   if(localStorage.getItem(PENDING_SYNC_KEY) && navigator.onLine && !syncInProgress) syncToServer();
 }, 15000);
+// Only runs when the tab is visible (not wasting requests in background),
+// and skips polling if a local sync is in flight to avoid conflicts.
+let lastServerTimestamp = null;
+
+async function pollForRemoteChanges(){
+  if(typeof sb === 'undefined' || !sb) return;
+  if(syncInProgress) return;
+  if(document.hidden) return; // don't poll when tab/app is in background
+  try{
+    const { data: row, error } = await sb
+      .from('app_state')
+      .select('data, updated_at')
+      .eq('id','main')
+      .maybeSingle();
+    if(error || !row) return;
+    // Only update local DB if the server has a newer version than what we last loaded.
+    if(lastServerTimestamp && row.updated_at <= lastServerTimestamp) return;
+    if(row.updated_at === lastServerTimestamp) return;
+    lastServerTimestamp = row.updated_at;
+    if(row.data && Object.keys(row.data).length>0){
+      DB = row.data;
+      ensureDataShape();
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
+      renderAll();
+      const el = document.getElementById('hdr-sync');
+      if(el){ el.textContent='🟢 Synced'; }
+    }
+  }catch(e){
+    // Silent fail — polling is best-effort, not critical
+  }
+}
+
+setInterval(pollForRemoteChanges, 30000);
+document.addEventListener('visibilitychange', ()=>{
+  // When the user switches back to the app tab, poll immediately
+  if(!document.hidden) pollForRemoteChanges();
+});
 
 function showStorageWarningBanner(){
   if(document.getElementById('storage-warning-banner')) return;

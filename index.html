@@ -1691,7 +1691,7 @@ async function loadDB(){
   // never leaves the page hanging on startup.
   try{
     const timeout = new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),6000));
-    const fetch = sb.from('app_state').select('data').eq('id','main').maybeSingle();
+    const fetch = sb.from('app_state').select('data, updated_at').eq('id','main').maybeSingle();
     const { data: row, error } = await Promise.race([fetch, timeout.then(()=>{throw new Error('timeout')})]);
     if(!error && row && row.data && Object.keys(row.data).length>0){
       DB = row.data;
@@ -1836,11 +1836,11 @@ async function pollForRemoteChanges(){
       .select('data, updated_at')
       .eq('id','main')
       .maybeSingle();
-    if(error || !row) return;
-    // Only update local DB if the server has a newer version than what we last loaded.
-    if(lastServerTimestamp && row.updated_at <= lastServerTimestamp) return;
-    if(row.updated_at === lastServerTimestamp) return;
-    lastServerTimestamp = row.updated_at;
+    if(error || !row || !row.data) return;
+    // Skip if server version is same or older than what we already have.
+    if(lastServerTimestamp && row.updated_at && row.updated_at <= lastServerTimestamp) return;
+    // Server has newer data — update everything.
+    lastServerTimestamp = row.updated_at || lastServerTimestamp;
     if(row.data && Object.keys(row.data).length>0){
       DB = row.data;
       ensureDataShape();
@@ -1854,7 +1854,7 @@ async function pollForRemoteChanges(){
   }
 }
 
-setInterval(pollForRemoteChanges, 30000);
+setInterval(pollForRemoteChanges, 10000);
 document.addEventListener('visibilitychange', ()=>{
   // When the user switches back to the app tab, poll immediately
   if(!document.hidden) pollForRemoteChanges();

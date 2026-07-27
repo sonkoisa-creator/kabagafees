@@ -1828,8 +1828,9 @@ let lastServerTimestamp = null;
 
 async function pollForRemoteChanges(){
   if(typeof sb === 'undefined' || !sb) return;
-  if(syncInProgress) return;
-  if(document.hidden) return; // don't poll when tab/app is in background
+  if(document.hidden) return;
+  // Note: we intentionally do NOT skip when syncInProgress is true.
+  // Polling reads from the server; syncing writes to it. They are independent.
   try{
     const { data: row, error } = await sb
       .from('app_state')
@@ -1837,24 +1838,27 @@ async function pollForRemoteChanges(){
       .eq('id','main')
       .maybeSingle();
     if(error || !row || !row.data) return;
-    // Skip if server version is same or older than what we already have.
+    // Skip only if we already have this exact version.
     if(lastServerTimestamp && row.updated_at && row.updated_at <= lastServerTimestamp) return;
-    // Server has newer data — update everything.
+    // Server has a newer version — pull it in.
     lastServerTimestamp = row.updated_at || lastServerTimestamp;
-    if(row.data && Object.keys(row.data).length>0){
+    // Don't overwrite if we have a local save in flight — our version is newer.
+    if(syncInProgress || localStorage.getItem(PENDING_SYNC_KEY)) return;
+    if(Object.keys(row.data).length > 0){
       DB = row.data;
       ensureDataShape();
       try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
       renderAll();
-      const el = document.getElementById('hdr-sync');
-      if(el){ el.textContent='🟢 Synced'; }
+      const hdr = document.getElementById('hdr-sync');
+      if(hdr) hdr.textContent = '🟢 Synced';
+      showToast('Data updated from another device', 'success');
     }
   }catch(e){
-    // Silent fail — polling is best-effort, not critical
+    // Silent fail — polling is best-effort
   }
 }
 
-setInterval(pollForRemoteChanges, 10000);
+setInterval(pollForRemoteChanges, 5000);
 document.addEventListener('visibilitychange', ()=>{
   // When the user switches back to the app tab, poll immediately
   if(!document.hidden) pollForRemoteChanges();

@@ -1696,6 +1696,7 @@ async function loadDB(){
     if(!error && row && row.data && Object.keys(row.data).length>0){
       DB = row.data;
       lastServerTimestamp = row.updated_at || null;
+      lastKnownDataHash = quickHash(row.data);
       ensureDataShape();
       loadedFromCloud = true;
       try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
@@ -1767,6 +1768,7 @@ function syncToServer(){
         scheduleRetry(10000);
       } else {
         localStorage.removeItem(PENDING_SYNC_KEY);
+        lastKnownDataHash = quickHash(DB);
         updateSyncIndicator(true);
         // If another save happened while this one was in flight, sync again immediately.
         if(localStorage.getItem(PENDING_SYNC_KEY)) syncToServer();
@@ -1825,12 +1827,27 @@ setInterval(()=>{
 // Only runs when the tab is visible (not wasting requests in background),
 // and skips polling if a local sync is in flight to avoid conflicts.
 let lastServerTimestamp = null;
+let lastKnownPaymentCount = -1;
+let lastKnownDataHash = null;
+
+function quickHash(obj){
+  // A fast fingerprint of the DB to detect any change, not just timestamp changes.
+  try{
+    const str = JSON.stringify({
+      payments: (obj.payments||[]).length,
+      pupils: (obj.pupils||[]).length,
+      expenditures: (obj.expenditures||[]).length,
+      lastPayId: (obj.payments||[])[0]?.id || '',
+      lastExpId: (obj.expenditures||[])[0]?.id || '',
+      scores: (obj.scores||[]).length
+    });
+    return str;
+  }catch(e){ return Math.random().toString(); }
+}
 
 async function pollForRemoteChanges(){
   if(typeof sb === 'undefined' || !sb) return;
   if(document.hidden) return;
-  // Note: we intentionally do NOT skip when syncInProgress is true.
-  // Polling reads from the server; syncing writes to it. They are independent.
   try{
     const { data: row, error } = await sb
       .from('app_state')
@@ -1838,11 +1855,15 @@ async function pollForRemoteChanges(){
       .eq('id','main')
       .maybeSingle();
     if(error || !row || !row.data) return;
-    // Skip only if we already have this exact version.
-    if(lastServerTimestamp && row.updated_at && row.updated_at <= lastServerTimestamp) return;
-    // Server has a newer version — pull it in.
+    // Use both timestamp AND data fingerprint to detect changes reliably.
+    const serverHash = quickHash(row.data);
+    const sameTimestamp = lastServerTimestamp && row.updated_at && row.updated_at <= lastServerTimestamp;
+    const sameData = lastKnownDataHash && serverHash === lastKnownDataHash;
+    if(sameTimestamp && sameData) return; // truly nothing new
+    // Update our records of what we've seen.
     lastServerTimestamp = row.updated_at || lastServerTimestamp;
-    // Don't overwrite if we have a local save in flight — our version is newer.
+    lastKnownDataHash = serverHash;
+    // Don't overwrite if we have a pending local save — our version is newer.
     if(syncInProgress || localStorage.getItem(PENDING_SYNC_KEY)) return;
     if(Object.keys(row.data).length > 0){
       DB = row.data;

@@ -1695,7 +1695,6 @@ async function loadDB(){
     const { data: row, error } = await Promise.race([fetch, timeout.then(()=>{throw new Error('timeout')})]);
     if(!error && row && row.data && Object.keys(row.data).length>0){
       DB = row.data;
-      lastServerTimestamp = row.updated_at || null;
       lastKnownDataHash = quickHash(row.data);
       ensureDataShape();
       loadedFromCloud = true;
@@ -1826,62 +1825,79 @@ setInterval(()=>{
 }, 15000);
 // Only runs when the tab is visible (not wasting requests in background),
 // and skips polling if a local sync is in flight to avoid conflicts.
-let lastServerTimestamp = null;
-let lastKnownPaymentCount = -1;
 let lastKnownDataHash = null;
+let realtimeChannel = null;
 
 function quickHash(obj){
-  // A fast fingerprint of the DB to detect any change, not just timestamp changes.
   try{
-    const str = JSON.stringify({
-      payments: (obj.payments||[]).length,
-      pupils: (obj.pupils||[]).length,
-      expenditures: (obj.expenditures||[]).length,
-      lastPayId: (obj.payments||[])[0]?.id || '',
-      lastExpId: (obj.expenditures||[])[0]?.id || '',
-      scores: (obj.scores||[]).length
+    return JSON.stringify({
+      p:(obj.payments||[]).length,
+      u:(obj.pupils||[]).length,
+      e:(obj.expenditures||[]).length,
+      s:(obj.scores||[]).length,
+      lid:(obj.payments||[])[0]?.id||'',
     });
-    return str;
-  }catch(e){ return Math.random().toString(); }
+  }catch(e){ return ''; }
 }
 
+function applyRemoteData(data){
+  if(!data || Object.keys(data).length===0) return;
+  const incomingHash = quickHash(data);
+  // Skip if this is the same data we already have (e.g. our own save echoed back).
+  if(incomingHash === lastKnownDataHash) return;
+  // Skip if we have a pending local save — our version is newer.
+  if(syncInProgress || localStorage.getItem(PENDING_SYNC_KEY)) return;
+  lastKnownDataHash = incomingHash;
+  DB = data;
+  ensureDataShape();
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
+  renderAll();
+  const hdr = document.getElementById('hdr-sync');
+  if(hdr) hdr.textContent = '🟢 Synced';
+  showToast('Updated from another device', 'success');
+}
+
+function startRealtime(){
+  if(typeof sb === 'undefined' || !sb) return;
+  // Unsubscribe from any existing channel first.
+  if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel = null; }
+  realtimeChannel = sb
+    .channel('app_state_changes')
+    .on('postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'app_state', filter: 'id=eq.main' },
+      (payload) => {
+        if(payload.new && payload.new.data) applyRemoteData(payload.new.data);
+      }
+    )
+    .subscribe((status)=>{
+      const hdr = document.getElementById('hdr-sync');
+      if(status === 'SUBSCRIBED'){
+        if(hdr) hdr.textContent = '🟢 Synced';
+      } else if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'){
+        if(hdr) hdr.textContent = '🟡 Reconnecting…';
+        // Fall back to polling if real-time fails.
+        setTimeout(startRealtime, 5000);
+      }
+    });
+}
+
+// Fallback poll every 15s in case real-time subscription drops.
 async function pollForRemoteChanges(){
   if(typeof sb === 'undefined' || !sb) return;
   if(document.hidden) return;
+  if(syncInProgress || localStorage.getItem(PENDING_SYNC_KEY)) return;
   try{
     const { data: row, error } = await sb
       .from('app_state')
-      .select('data, updated_at')
+      .select('data')
       .eq('id','main')
       .maybeSingle();
-    if(error || !row || !row.data) return;
-    // Use both timestamp AND data fingerprint to detect changes reliably.
-    const serverHash = quickHash(row.data);
-    const sameTimestamp = lastServerTimestamp && row.updated_at && row.updated_at <= lastServerTimestamp;
-    const sameData = lastKnownDataHash && serverHash === lastKnownDataHash;
-    if(sameTimestamp && sameData) return; // truly nothing new
-    // Update our records of what we've seen.
-    lastServerTimestamp = row.updated_at || lastServerTimestamp;
-    lastKnownDataHash = serverHash;
-    // Don't overwrite if we have a pending local save — our version is newer.
-    if(syncInProgress || localStorage.getItem(PENDING_SYNC_KEY)) return;
-    if(Object.keys(row.data).length > 0){
-      DB = row.data;
-      ensureDataShape();
-      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
-      renderAll();
-      const hdr = document.getElementById('hdr-sync');
-      if(hdr) hdr.textContent = '🟢 Synced';
-      showToast('Data updated from another device', 'success');
-    }
-  }catch(e){
-    // Silent fail — polling is best-effort
-  }
+    if(!error && row && row.data) applyRemoteData(row.data);
+  }catch(e){}
 }
 
-setInterval(pollForRemoteChanges, 5000);
+setInterval(pollForRemoteChanges, 15000);
 document.addEventListener('visibilitychange', ()=>{
-  // When the user switches back to the app tab, poll immediately
   if(!document.hidden) pollForRemoteChanges();
 });
 
@@ -4567,6 +4583,7 @@ async function checkGatePassword(){
     saveDB();
     applyRolePermissions();
     renderAll();
+    startRealtime();
   } else {
     errEl.textContent = 'Incorrect username or password.';
     pInput.classList.remove('shake'); void pInput.offsetWidth; pInput.classList.add('shake');
@@ -4708,6 +4725,7 @@ window.addEventListener('DOMContentLoaded', async function(){
     document.getElementById('passwordGate').style.display = 'none';
     applyRolePermissions();
     renderAll();
+    startRealtime();
   } else {
     document.body.classList.add('locked');
     document.getElementById('passwordGate').style.display = 'flex';

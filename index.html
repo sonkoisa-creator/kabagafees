@@ -1769,7 +1769,6 @@ function syncToServer(){
         localStorage.removeItem(PENDING_SYNC_KEY);
         lastKnownDataHash = quickHash(DB);
         updateSyncIndicator(true);
-        // If another save happened while this one was in flight, sync again immediately.
         if(localStorage.getItem(PENDING_SYNC_KEY)) syncToServer();
       }
     })
@@ -1842,12 +1841,10 @@ function quickHash(obj){
 
 function applyRemoteData(data){
   if(!data || Object.keys(data).length===0) return;
-  const incomingHash = quickHash(data);
-  // Skip if this is the same data we already have (e.g. our own save echoed back).
-  if(incomingHash === lastKnownDataHash) return;
-  // Skip if we have a pending local save — our version is newer.
-  if(syncInProgress || localStorage.getItem(PENDING_SYNC_KEY)) return;
-  lastKnownDataHash = incomingHash;
+  // Only skip if WE are currently writing to the server — our version is definitely newer.
+  // Never skip based on hash comparison — it causes missed updates.
+  if(syncInProgress) return;
+  if(localStorage.getItem(PENDING_SYNC_KEY)) return;
   DB = data;
   ensureDataShape();
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
@@ -1881,11 +1878,11 @@ function startRealtime(){
     });
 }
 
-// Fallback poll every 15s in case real-time subscription drops.
+// Fallback poll every 10s in case real-time subscription drops.
 async function pollForRemoteChanges(){
   if(typeof sb === 'undefined' || !sb) return;
   if(document.hidden) return;
-  if(syncInProgress || localStorage.getItem(PENDING_SYNC_KEY)) return;
+  if(syncInProgress) return; // only skip if WE are currently writing
   try{
     const { data: row, error } = await sb
       .from('app_state')
@@ -1896,7 +1893,7 @@ async function pollForRemoteChanges(){
   }catch(e){}
 }
 
-setInterval(pollForRemoteChanges, 15000);
+setInterval(pollForRemoteChanges, 10000);
 document.addEventListener('visibilitychange', ()=>{
   if(!document.hidden) pollForRemoteChanges();
 });

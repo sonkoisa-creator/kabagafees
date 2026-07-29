@@ -1695,7 +1695,6 @@ async function loadDB(){
     const { data: row, error } = await Promise.race([fetch, timeout.then(()=>{throw new Error('timeout')})]);
     if(!error && row && row.data && Object.keys(row.data).length>0){
       DB = row.data;
-      lastKnownDataHash = quickHash(row.data);
       ensureDataShape();
       loadedFromCloud = true;
       try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
@@ -1767,7 +1766,6 @@ function syncToServer(){
         scheduleRetry(10000);
       } else {
         localStorage.removeItem(PENDING_SYNC_KEY);
-        lastKnownDataHash = quickHash(DB);
         updateSyncIndicator(true);
         if(localStorage.getItem(PENDING_SYNC_KEY)) syncToServer();
       }
@@ -1824,79 +1822,45 @@ setInterval(()=>{
 }, 15000);
 // Only runs when the tab is visible (not wasting requests in background),
 // and skips polling if a local sync is in flight to avoid conflicts.
-let lastKnownDataHash = null;
-let realtimeChannel = null;
+// ── LIVE SYNC ──────────────────────────────────────────────────────────────
+// Simple, reliable approach: poll Supabase every 3 seconds.
+// No hash checks, no timestamp guards, no complex logic — just always fetch
+// and apply if we're not currently in the middle of saving our own data.
+let livePoller = null;
 
-function quickHash(obj){
-  try{
-    return JSON.stringify({
-      p:(obj.payments||[]).length,
-      u:(obj.pupils||[]).length,
-      e:(obj.expenditures||[]).length,
-      s:(obj.scores||[]).length,
-      lid:(obj.payments||[])[0]?.id||'',
-    });
-  }catch(e){ return ''; }
+function startLivePoller(){
+  if(livePoller) clearInterval(livePoller);
+  livePoller = setInterval(fetchAndApplyRemote, 3000);
+  // Also poll immediately when tab becomes visible again.
+  document.addEventListener('visibilitychange', ()=>{
+    if(!document.hidden) fetchAndApplyRemote();
+  });
+  // Poll immediately on start.
+  fetchAndApplyRemote();
 }
 
-function applyRemoteData(data){
-  if(!data || Object.keys(data).length===0) return;
-  // Only skip if WE are currently writing to the server — our version is definitely newer.
-  // Never skip based on hash comparison — it causes missed updates.
-  if(syncInProgress) return;
-  if(localStorage.getItem(PENDING_SYNC_KEY)) return;
-  DB = data;
-  ensureDataShape();
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
-  renderAll();
-  const hdr = document.getElementById('hdr-sync');
-  if(hdr) hdr.textContent = '🟢 Synced';
-  showToast('Updated from another device', 'success');
-}
-
-function startRealtime(){
+async function fetchAndApplyRemote(){
   if(typeof sb === 'undefined' || !sb) return;
-  // Unsubscribe from any existing channel first.
-  if(realtimeChannel){ sb.removeChannel(realtimeChannel); realtimeChannel = null; }
-  realtimeChannel = sb
-    .channel('app_state_changes')
-    .on('postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'app_state', filter: 'id=eq.main' },
-      (payload) => {
-        if(payload.new && payload.new.data) applyRemoteData(payload.new.data);
-      }
-    )
-    .subscribe((status)=>{
-      const hdr = document.getElementById('hdr-sync');
-      if(status === 'SUBSCRIBED'){
-        if(hdr) hdr.textContent = '🟢 Synced';
-      } else if(status === 'CHANNEL_ERROR' || status === 'TIMED_OUT'){
-        if(hdr) hdr.textContent = '🟡 Reconnecting…';
-        // Fall back to polling if real-time fails.
-        setTimeout(startRealtime, 5000);
-      }
-    });
-}
-
-// Fallback poll every 10s in case real-time subscription drops.
-async function pollForRemoteChanges(){
-  if(typeof sb === 'undefined' || !sb) return;
-  if(document.hidden) return;
-  if(syncInProgress) return; // only skip if WE are currently writing
+  if(syncInProgress) return; // we are saving — skip this tick only
   try{
     const { data: row, error } = await sb
       .from('app_state')
       .select('data')
       .eq('id','main')
       .maybeSingle();
-    if(!error && row && row.data) applyRemoteData(row.data);
-  }catch(e){}
+    if(error || !row || !row.data) return;
+    if(syncInProgress) return; // re-check after the await
+    if(localStorage.getItem(PENDING_SYNC_KEY)) return; // we have unsaved local changes
+    DB = row.data;
+    ensureDataShape();
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
+    renderAll();
+    const hdr = document.getElementById('hdr-sync');
+    if(hdr) hdr.textContent = '🟢 Live';
+  }catch(e){
+    // silent — network blip, will retry in 3s
+  }
 }
-
-setInterval(pollForRemoteChanges, 10000);
-document.addEventListener('visibilitychange', ()=>{
-  if(!document.hidden) pollForRemoteChanges();
-});
 
 function showStorageWarningBanner(){
   if(document.getElementById('storage-warning-banner')) return;
@@ -4580,7 +4544,7 @@ async function checkGatePassword(){
     saveDB();
     applyRolePermissions();
     renderAll();
-    startRealtime();
+    startLivePoller();
   } else {
     errEl.textContent = 'Incorrect username or password.';
     pInput.classList.remove('shake'); void pInput.offsetWidth; pInput.classList.add('shake');
@@ -4722,7 +4686,7 @@ window.addEventListener('DOMContentLoaded', async function(){
     document.getElementById('passwordGate').style.display = 'none';
     applyRolePermissions();
     renderAll();
-    startRealtime();
+    startLivePoller();
   } else {
     document.body.classList.add('locked');
     document.getElementById('passwordGate').style.display = 'flex';

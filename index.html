@@ -371,7 +371,7 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
   </div>
   <div class="term-info">
     <div><b id="hdr-term">Term 2 — 2026</b></div>
-    <div id="hdr-sync" style="font-size:11px;margin-top:2px;cursor:pointer;" onclick="showPage(document.querySelector('.nav button[onclick*=settings]') ? 'settings' : 'overview', document.querySelector('.nav button[onclick*=settings]'))" title="Click for sync details in School Settings">🟡 Local Only</div>
+    <div id="hdr-sync" style="font-size:11px;margin-top:2px;cursor:pointer;" onclick="showPage(document.querySelector('.nav button[onclick*=settings]') ? 'settings' : 'overview', document.querySelector('.nav button[onclick*=settings]'))" title="Click for sync details in School Settings">⏳ Checking…</div>
   </div>
   <div id="hdr-user" style="display:flex;align-items:center;gap:10px;margin-left:14px;">
     <div style="text-align:right;font-size:12px;">
@@ -2752,29 +2752,49 @@ function renderActivityLog(){
 
 /* ============== SYNC (offline-first; inert until a server is connected) ============== */
 
-// navigator.onLine is unreliable on mobile — it can return false even with a working connection.
-// We probe a real URL instead. Result cached in _realOnline so badge updates immediately on load.
-let _realOnline = navigator.onLine; // best-guess start; refined by probe below
+// Connectivity detection strategy:
+// When opened as file:// (phone storage, USB, WhatsApp download) browsers BLOCK outgoing
+// fetch requests for security — so any probe URL always "fails" and shows offline.
+// Fix: detect file:// context and trust navigator.onLine directly there (it works fine).
+// When hosted (http/https), do a real lightweight probe to confirm actual connectivity.
+
+let _realOnline = navigator.onLine; // immediate best-guess; updated below within 1 second
+
+function isFileProtocol(){ return location.protocol === 'file:'; }
 
 async function probeConnectivity(){
+  if(isFileProtocol()){
+    // file:// — can't make outgoing requests, so trust navigator.onLine (accurate on Android/iOS)
+    _realOnline = navigator.onLine;
+    updateSyncBadge();
+    return;
+  }
+  // Hosted context — do a real probe using AbortController for timeout compatibility
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
   try{
-    // Tiny no-cors HEAD request to a reliable CDN — just needs to resolve, no data returned
+    // gstatic generate_204 is a Google endpoint that returns 204 No Content instantly
+    // mode:'no-cors' means we can't read the response, but a resolve = network worked
     await fetch('https://www.gstatic.com/generate_204', {
-      method:'HEAD', mode:'no-cors', cache:'no-store',
-      signal: AbortSignal.timeout ? AbortSignal.timeout(3000) : undefined
+      method:'HEAD', mode:'no-cors', cache:'no-store', signal: controller.signal
     });
     _realOnline = true;
-  } catch(e){
+  }catch(e){
+    // AbortError = timed out = offline; TypeError = DNS/network failed = offline
     _realOnline = false;
+  }finally{
+    clearTimeout(timer);
   }
   updateSyncBadge();
 }
 
-// Probe immediately on load, then every 30 s so badge stays current while app is open
+// Run immediately on load — resolves in < 1 second when online
 probeConnectivity();
+
+// Re-probe every 30 s so badge stays current while page stays open
 setInterval(probeConnectivity, 30000);
 
-// Browser native events give fast signals — run probe to confirm, update badge immediately
+// Browser fires these events when network state changes (WiFi on/off, airplane mode, etc.)
 window.addEventListener('online',  () => { probeConnectivity(); showToast('Internet connection restored.', 'success'); });
 window.addEventListener('offline', () => { _realOnline = false; updateSyncBadge(); showToast('Internet connection lost — data saved locally, working normally.', 'error'); });
 
@@ -2785,7 +2805,7 @@ function updateSyncBadge(){
     el.innerHTML = '🔴 No Internet';
     el.style.color = '#c0392b';
   } else if(!DB || !DB.syncEndpoint){
-    // Online, but no cloud server configured — this is normal and fine
+    // Has internet, no cloud server — normal standalone mode
     el.innerHTML = '🟢 Online · Local Only';
     el.style.color = '#2F6B3A';
   } else if(DB.syncStatus==='error'){
@@ -2815,7 +2835,11 @@ function renderSyncStatusDetail(){
         : DB.syncStatus==='error'
           ? `<b style="color:#c0392b;">🔴 Sync Error</b> — server unreachable at last attempt`
           : `<b style="color:#b7770d;">🟡 Pending</b> — server configured, sync not yet run`);
+  const protocolNote = isFileProtocol()
+    ? `<div class="kpi-mini"><span>How opened</span><b>📁 File on device (file://) — using navigator.onLine for connectivity</b></div>`
+    : `<div class="kpi-mini"><span>How opened</span><b>🌐 Hosted (${location.protocol}//) — using live connectivity probe</b></div>`;
   el.innerHTML = `
+    ${protocolNote}
     <div class="kpi-mini"><span>Internet</span>${internetStatus}</div>
     <div class="kpi-mini"><span>Cloud sync</span>${syncNote}</div>
     <div class="kpi-mini"><span>Local data</span><b>✅ Always saved on this device</b></div>

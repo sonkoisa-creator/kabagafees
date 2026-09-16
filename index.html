@@ -1484,7 +1484,36 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate):not(#parentResultsGate
 const STORAGE_KEY = 'kabaga_fees_data_v2';
 const SUPABASE_URL = 'https://adpskscwhivyhbfzrtgh.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFkcHNrc2N3aGl2eWhiZnpydGdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNjM5OTksImV4cCI6MjA5NzYzOTk5OX0.g2zmdOMS5HRbEOMEQmbowjNNQapxmK6rXsE3JR-RiXI';
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// Initialise Supabase client — wait up to 10 seconds for the CDN library
+// to load before giving up. This prevents "Local Only" when CDN is slow.
+let sb = null;
+function initSupabase(){
+  if(window.supabase && window.supabase.createClient){
+    try{
+      sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      console.log('Supabase ready');
+      return true;
+    }catch(e){ console.warn('Supabase init error:', e); return false; }
+  }
+  return false;
+}
+// Try immediately, then keep retrying every 200ms for up to 10 seconds
+if(!initSupabase()){
+  const _sbRetry = setInterval(()=>{
+    if(initSupabase()){
+      clearInterval(_sbRetry);
+      // Retry any pending sync now that Supabase is available
+      if(typeof loadDB === 'function' && !window._dbLoaded){
+        // Page already loaded without Supabase — retry now
+        loadDB().then(()=>{ renderAll(); startLivePoller(); });
+      }
+      if(localStorage.getItem('kabaga_pending_sync_v1')) syncToServer();
+    }
+  }, 200);
+  // Give up after 10 seconds
+  setTimeout(()=>{ clearInterval(_sbRetry); }, 10000);
+}
 
 // SHA-256 hex hash, matching Postgres' encode(digest(text,'sha256'),'hex')
 // used when we seeded the users table. Used for all password checks now.
@@ -1737,6 +1766,7 @@ function ensureDataShape(){
 }
 
 async function loadDB(){
+  window._dbLoaded = false;
   let loadedFromCloud = false;
   // Race Supabase load against a 6-second timeout so a slow connection
   // never leaves the page hanging on startup.
@@ -1772,6 +1802,7 @@ async function loadDB(){
       saveAndSync();
     }
   }
+  window._dbLoaded = true;
 }
 
 const PENDING_SYNC_KEY = 'kabaga_pending_sync_v1';
@@ -1920,6 +1951,11 @@ async function fetchAndApplyRemote(){
     const msSinceLastSave = Date.now() - (window._lastSaveTime||0);
     if(msSinceLastSave < 2000) return;
     _lastServerUpdatedAt = row.updated_at || _lastServerUpdatedAt;
+    // Successfully connected — update header indicator
+    const hdrEl = document.getElementById('hdr-sync');
+    if(hdrEl && (hdrEl.textContent.includes('Local') || hdrEl.textContent.includes('Offline'))){
+      hdrEl.textContent = '🟢 Live';
+    }
     DB = row.data;
     ensureDataShape();
     try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}

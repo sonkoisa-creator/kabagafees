@@ -7,10 +7,7 @@
 <meta name="description" content="Kabaga Junior School Management System — fees, boarding, expenditure, payroll, uniforms and term progression.">
 <meta name="theme-color" content="#1B2C5E">
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='16' fill='%231B2C5E'/%3E%3Ctext x='50' y='66' font-size='52' text-anchor='middle' fill='white'%3E%F0%9F%93%96%3C/text%3E%3C/svg%3E">
-<!-- Firebase SDK (v9 compat — works in plain HTML without a build step) -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
 :root{
@@ -326,7 +323,7 @@ tr.defaulter-row:hover{background:#FCEAE8;}
 .gate-card button:hover{background:#142348;}
 #gate-error{color:var(--red);font-size:12px;margin-top:8px;min-height:16px;}
 @keyframes gateshake{0%,100%{transform:translateX(0);}25%{transform:translateX(-6px);}75%{transform:translateX(6px);}}
-body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !important;}
+body.locked > *:not(#passwordGate):not(#parentLookupGate):not(#parentResultsGate){display:none !important;}
 #parentLookupGate{position:fixed;inset:0;background:linear-gradient(135deg,#1B2C5E 0%, #0F1B3D 100%);z-index:9999;display:flex;align-items:center;justify-content:center;}
 </style>
 </head>
@@ -343,6 +340,22 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
     <div id="gate-error"></div>
     <p style="margin-top:14px;font-size:11px;color:var(--ink-soft);">Forgot your details? Ask your Director — user accounts are managed under School Settings → Users &amp; Roles.</p>
     <p style="margin-top:10px;"><a href="#" onclick="openParentLookup();return false;" style="color:#9FB3DD;font-size:12px;">👨‍👩‍👧 Parent? Look up your child's balance</a></p>
+    <p style="margin-top:6px;"><a href="#" onclick="openParentResultsLookup();return false;" style="color:#9FB3DD;font-size:12px;">📊 Parent? Look up your child's results</a></p>
+  </div>
+</div>
+
+<!-- PARENT RESULTS LOOKUP (read-only, no login) -->
+<div id="parentResultsGate" style="display:none;position:fixed;inset:0;background:linear-gradient(135deg,#1B2C5E 0%, #0F1B3D 100%);z-index:9999;align-items:center;justify-content:center;">
+  <div class="gate-card" style="max-width:480px;">
+    <div class="crest">📊</div>
+    <h2>Parent Results Lookup</h2>
+    <p>Enter your child's admission number and the phone number on file to view their results.</p>
+    <input type="text" id="prl-admission" placeholder="Admission No. (e.g. KJS-2026-0001)" autocomplete="off">
+    <input type="text" id="prl-phone" placeholder="Phone number on file" autocomplete="off" onkeydown="if(event.key==='Enter') runParentResultsLookup();">
+    <button onclick="runParentResultsLookup()">🔍 View Results</button>
+    <div id="prl-error"></div>
+    <div id="prl-result"></div>
+    <p style="margin-top:14px;"><a href="#" onclick="closeParentResultsLookup();return false;" style="color:#9FB3DD;font-size:12px;">← Back to staff sign-in</a></p>
   </div>
 </div>
 
@@ -374,7 +387,7 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
   </div>
   <div class="term-info">
     <div><b id="hdr-term">Term 2 — 2026</b></div>
-    <div id="hdr-sync" style="font-size:11px;margin-top:2px;cursor:pointer;color:#2F6B3A;" onclick="showPage(document.querySelector('.nav button[onclick*=settings]') ? 'settings' : 'overview', document.querySelector('.nav button[onclick*=settings]'))" title="Click for sync details in School Settings">🟢 Local Only</div>
+    <div id="hdr-sync" style="font-size:11px;margin-top:2px;cursor:pointer;" onclick="showPage(document.querySelector('.nav button[onclick*=settings]') ? 'settings' : 'overview', document.querySelector('.nav button[onclick*=settings]'))" title="Click for sync details in School Settings">🟡 Local Only</div>
   </div>
   <div id="hdr-user" style="display:flex;align-items:center;gap:10px;margin-left:14px;">
     <div style="text-align:right;font-size:12px;">
@@ -391,11 +404,14 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
   <button onclick="showPage('pupils',this)">👧 Pupils</button>
   <button onclick="showPage('bursaries',this)">🎓 Bursaries</button>
   <button onclick="showPage('arrears',this)">⚠️ Arrears</button>
+  <button onclick="showPage('reminders',this)" data-perm="recordPayments">📱 Fee Reminders</button>
+  <button onclick="showPage('results',this)">📊 Results</button>
   <button onclick="showPage('fees',this)">⚙️ Fee Setup</button>
   <button onclick="showPage('expenditure',this)">💸 Expenditure</button>
   <button onclick="showPage('directors',this)">🤝 Director Funds</button>
   <button onclick="showPage('uniforms',this)">👕 Uniforms</button>
   <button onclick="showPage('finance',this)">💼 Finance</button>
+  <button onclick="showPage('budget',this)" data-perm="viewReports">📋 Term Budget</button>
   <button onclick="showPage('settings',this)">🏫 School Settings</button>
   <button onclick="showPage('reports',this)">📈 Class Reports</button>
   <button onclick="showPage('backup',this)">💾 Backup</button>
@@ -483,13 +499,14 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
     <div class="toolbar no-print">
       <input type="text" id="stu-search" placeholder="Search pupils..." oninput="renderPupils()">
       <select id="stu-cls" onchange="renderPupils()"><option value="all">All classes</option></select>
-      <select id="stu-enrol" onchange="renderPupils()">
-        <option value="active">Active pupils</option>
-        <option value="left">Left / Withdrawn</option>
-        <option value="all">All pupils</option>
-      </select>
       <select id="stu-status" onchange="renderPupils()">
         <option value="all">All status</option><option value="paid">Paid</option><option value="partial">Partial</option><option value="unpaid">Unpaid</option><option value="overdue">Overdue</option>
+      </select>
+      <select id="stu-enrollment" onchange="renderPupils()">
+        <option value="active">✅ Active pupils only</option>
+        <option value="all">All pupils (incl. left/deferred)</option>
+        <option value="left">🚪 Left school</option>
+        <option value="deferred">⏸ Deferred</option>
       </select>
       <button class="btn btn-primary" data-perm="registerPupils" onclick="openPupilModal()">＋ Register Pupil</button>
     </div>
@@ -497,7 +514,7 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th></th><th>Name</th><th>Class</th><th>Type</th><th>Parent / Guardian</th><th>Contact</th><th class="right">Fee Payable</th><th class="right">Paid</th><th>Progress</th><th>Status</th><th class="no-print">Actions</th>
+          <th></th><th>Reg No.</th><th>Name</th><th>Class</th><th>Type</th><th>Parent / Guardian</th><th>Contact</th><th class="right">Fee Payable</th><th class="right">Paid</th><th>Progress</th><th>Status</th><th class="no-print">Actions</th>
         </tr></thead>
         <tbody id="students-table"></tbody>
       </table>
@@ -563,6 +580,69 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
       <div style="margin-top:14px;" class="no-print">
         <button class="btn btn-ghost" onclick="openArrearsModal()">＋ Add Previous Term Arrears</button>
       </div>
+    </div>
+  </div>
+
+  <!-- FEE REMINDERS -->
+  <div class="page" id="page-reminders">
+    <div class="metric-row">
+      <div class="metric m-red"><div class="metric-label">Pupils with balance</div><div class="metric-value" id="rem-count">—</div></div>
+      <div class="metric"><div class="metric-label">Total outstanding</div><div class="metric-value" id="rem-total">—</div></div>
+      <div class="metric"><div class="metric-label">No phone number on file</div><div class="metric-value" id="rem-nophone">—</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">📱 Send Fee Reminders by SMS <small>Open this on the phone with the school SIM (+256702410475) — tap "Send SMS" to open your Messages app with the text already filled in</small></div>
+      <div class="toolbar no-print">
+        <select id="rem-class-filter" onchange="renderRemindersTable()"></select>
+        <input type="text" id="rem-search" placeholder="Search pupil..." oninput="renderRemindersTable()">
+        <textarea id="rem-template" rows="2" style="flex:1;min-width:240px;font-size:12px;" oninput="renderRemindersTable()">Dear Parent/Guardian, {NAME} ({CLASS}) at Kabaga Junior School has an outstanding balance of UGX {BALANCE} for {TERM}, {YEAR}. Kindly clear it at your earliest convenience. Thank you. — Kabaga Junior School, +256702410475</textarea>
+      </div>
+      <div style="font-size:11px;color:var(--ink-soft);margin:-6px 0 10px;">Placeholders you can use in the message above: {NAME}, {CLASS}, {BALANCE}, {TERM}, {YEAR}</div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Pupil</th><th>Class</th><th class="right">Balance</th><th>Phone (sending to)</th><th class="no-print">Action</th>
+        </tr></thead>
+        <tbody id="reminders-table"></tbody>
+      </table>
+      </div>
+      <div id="reminders-empty" style="display:none;" class="empty">No pupils currently have an outstanding balance. 🎉</div>
+    </div>
+  </div>
+
+  <!-- ACADEMIC RESULTS -->
+  <div class="page" id="page-results">
+    <div class="card">
+      <div class="card-title">📊 Academic Results <small>Beginning of Term, Mid Term, and End of Term scores — entered by the Head Teacher</small></div>
+      <div class="frow no-print">
+        <div class="fg"><label>Class</label><select id="res-cls" onchange="onResultsClassChange()"></select></div>
+        <div class="fg"><label>Pupil</label><select id="res-pupil" onchange="loadScoreEntryForm()"></select></div>
+        <div class="fg"><label>Assessment</label>
+          <select id="res-assessment" onchange="loadScoreEntryForm()">
+            <option>Beginning of Term</option><option>Mid Term</option><option>End of Term</option>
+          </select>
+        </div>
+      </div>
+      <div id="res-permission-note" class="hint-box" style="display:none;">Only the Head Teacher or Director can enter or edit scores. You can still view results below.</div>
+      <div id="res-entry-form" style="margin-top:10px;"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 Class Results Overview <small>See all pupils' scores for a class at a glance</small></div>
+      <div class="toolbar no-print">
+        <select id="res-overview-cls" onchange="renderResultsOverview()"></select>
+        <select id="res-overview-assessment" onchange="renderResultsOverview()">
+          <option value="all">All assessments</option>
+          <option>Beginning of Term</option><option>Mid Term</option><option>End of Term</option>
+        </select>
+      </div>
+      <div class="table-wrap">
+        <table id="res-overview-table-wrap">
+          <thead id="res-overview-head"></thead>
+          <tbody id="res-overview-body"></tbody>
+        </table>
+      </div>
+      <div id="res-overview-empty" style="display:none;" class="empty">No scores recorded yet for this selection.</div>
     </div>
   </div>
 
@@ -883,44 +963,15 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
     </div>
 
     <div class="card">
-      <div class="card-title">☁️ Firebase Database Sync <small>Share data across all devices in real time</small></div>
-      <div class="section-note">When Firebase is connected, every save on Computer A appears on Computer B within seconds — automatically, with no manual steps. Data is also always saved locally on each device so the system works even when internet is temporarily lost.</div>
-      <div id="sync-status-detail" style="margin-bottom:14px;"></div>
-
-      <div id="fb-connected-panel" style="display:none;">
-        <div class="hint-box" style="color:#2F6B3A;border-color:#2F6B3A;">🟢 Firebase is connected. All devices using this system are sharing the same data in real time.</div>
-        <div style="margin-top:10px;">
-          <button class="btn" style="background:var(--red);color:#fff;" onclick="clearFirebaseConfig()">Disconnect Firebase</button>
-          <button class="btn btn-navy" onclick="attemptSync()" style="margin-left:8px;">🔄 Push My Data Now</button>
-        </div>
-      </div>
-
-      <div id="fb-setup-panel">
-        <div class="divider-label">Connect Firebase — one-time setup</div>
-        <div class="section-note">Follow the 5 steps below, then paste your config here. You only do this once — every other device just needs the same config pasted in.</div>
-
-        <div style="background:#F7F5F0;border-radius:10px;padding:14px 16px;margin-bottom:14px;font-size:13px;line-height:1.8;">
-          <b>Step 1</b> — Go to <b>console.firebase.google.com</b> and sign in with your Google account<br>
-          <b>Step 2</b> — Click <b>"Add project"</b> → name it <b>kabaga-school</b> → click through and create it<br>
-          <b>Step 3</b> — On the project page, click the <b>&lt;/&gt;</b> (Web) icon → register a web app → name it <b>kabaga</b><br>
-          <b>Step 4</b> — Firebase shows you a <code>firebaseConfig</code> block. Copy everything inside the <code>{ }</code> braces<br>
-          <b>Step 5</b> — In the left menu go to <b>Firestore Database → Create database → Start in test mode → Create</b><br>
-          <b>Step 6</b> — Paste the config below and click Connect
-        </div>
-
-        <div class="fg">
-          <label>Paste your Firebase config here</label>
-          <textarea id="fb-config-input" rows="8" style="font-family:monospace;font-size:12px;width:100%;border:1px solid var(--line);border-radius:6px;padding:8px;" placeholder='{
-  apiKey: "AIzaSy...",
-  authDomain: "kabaga-school.firebaseapp.com",
-  projectId: "kabaga-school",
-  storageBucket: "kabaga-school.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abc123"
-}'></textarea>
-        </div>
-        <div style="margin-top:8px;display:flex;gap:8px;">
-          <button class="btn btn-primary" onclick="saveFirebaseConfig()">☁️ Connect Firebase</button>
+      <div class="card-title">📶 Sync &amp; Offline Status</div>
+      <div class="section-note">This app works fully offline — every screen above keeps working with no internet connection, and all data is saved on this device. Cross-device sync needs a small server to push and pull changes; until one is connected here, every device keeps its <b>own independent copy</b> of the data.</div>
+      <div id="sync-status-detail"></div>
+      <div class="fg no-print" data-perm="manageUsers" style="margin-top:10px;">
+        <label>Sync server address (optional — leave blank to stay fully offline)</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="sync-endpoint-input" placeholder="https://your-sync-server.example.com">
+          <button class="btn btn-navy btn-sm" onclick="saveSyncEndpoint()">Save</button>
+          <button class="btn btn-primary btn-sm" onclick="attemptSync()">🔄 Sync Now</button>
         </div>
       </div>
     </div>
@@ -933,6 +984,39 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
   </div>
 
   <!-- REPORTS -->
+  <!-- TERM BUDGET -->
+  <div class="page" id="page-budget">
+    <div class="card">
+      <div class="card-title">📋 Term Budget Generator
+        <small>Generates Term 3 budget based on Term 2 actuals — edit any figure before printing</small>
+      </div>
+      <div class="toolbar no-print">
+        <div class="fg" style="max-width:220px;">
+          <label>Base budget on term</label>
+          <select id="bgt-source-term" onchange="renderBudgetPage()">
+            <option>Term 1</option><option selected>Term 2</option><option>Term 3</option>
+          </select>
+        </div>
+        <div class="fg" style="max-width:160px;">
+          <label>Academic year</label>
+          <input type="text" id="bgt-source-year" value="2026" onchange="renderBudgetPage()">
+        </div>
+        <div class="fg" style="max-width:220px;">
+          <label>Budget for term</label>
+          <select id="bgt-target-term">
+            <option>Term 1</option><option>Term 2</option><option selected>Term 3</option>
+          </select>
+        </div>
+        <div class="fg" style="max-width:160px;">
+          <label>Budget year</label>
+          <input type="text" id="bgt-target-year" value="2026">
+        </div>
+        <button class="btn btn-primary no-print" onclick="window.print()">🖨️ Print Budget</button>
+      </div>
+      <div id="budget-content"></div>
+    </div>
+  </div>
+
   <div class="page" id="page-reports">
     <div class="toolbar no-print">
       <select id="report-cls" onchange="renderClassReport()">
@@ -987,6 +1071,14 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
   <div class="modal">
     <h3>🧾 Record Payment</h3>
     <div class="frow">
+      <div class="fg"><label>Filter by class</label>
+        <select id="pm-class-filter" onchange="populatePupilSelect()"></select>
+      </div>
+      <div class="fg"><label>Search pupil name</label>
+        <input type="text" id="pm-pupil-search" placeholder="Start typing a name…" oninput="populatePupilSelect()">
+      </div>
+    </div>
+    <div class="frow">
       <div class="fg"><label>Pupil</label>
         <select id="pm-pupil" onchange="updatePayHint()"></select>
       </div>
@@ -994,13 +1086,12 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
     </div>
     <div class="hint-box" id="pm-hint">Select a pupil to see fee balance.</div>
     <div class="frow">
-      <div class="fg"><label>Tuition paid now (UGX)</label><input type="number" id="pm-tuition" placeholder="0" value="0"></div>
-      <div class="fg"><label>Lunch paid now (UGX)</label><input type="number" id="pm-lunch" placeholder="0" value="0"></div>
+      <div class="fg" style="flex:1;"><label>Amount paid now (UGX)</label><input type="number" id="pm-tuition" placeholder="0" value="0"></div>
     </div>
-    <div class="frow">
-      <div class="fg"><label>Boarding paid now (UGX)</label><input type="number" id="pm-boarding" placeholder="0" value="0"></div>
-      <div class="fg"><label>Arrears paid now (UGX)</label><input type="number" id="pm-arrears" placeholder="0" value="0"></div>
-    </div>
+    <div style="font-size:11px;color:var(--ink-soft);margin:-4px 0 10px;">Enter the total amount the parent paid — it's applied automatically in this order: arrears, then lunch, then tuition, then boarding.</div>
+    <input type="hidden" id="pm-lunch" value="0">
+    <input type="hidden" id="pm-arrears" value="0">
+    <input type="hidden" id="pm-boarding" value="0">
     <div class="frow">
       <div class="fg"><label>Payment method</label>
         <select id="pm-method"><option>Cash</option><option>Mobile Money</option><option>Bank transfer</option></select>
@@ -1013,6 +1104,36 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModals()">Cancel</button>
       <button class="btn btn-primary" onclick="submitPayment()">💾 Save Payment</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT PAYMENT MODAL (Director/Bursar only — fixes mistakes in a recorded payment) -->
+<div class="modal-overlay no-print" id="editPaymentModal">
+  <div class="modal">
+    <h3>✎ Edit Payment Record</h3>
+    <input type="hidden" id="epm-id">
+    <div class="frow">
+      <div class="fg"><label>Tuition paid (UGX)</label><input type="number" id="epm-tuition" value="0"></div>
+      <div class="fg"><label>Lunch paid (UGX)</label><input type="number" id="epm-lunch" value="0"></div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label>Boarding paid (UGX)</label><input type="number" id="epm-boarding" value="0"></div>
+      <div class="fg"><label>Arrears paid (UGX)</label><input type="number" id="epm-arrears" value="0"></div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label>Receipt date</label><input type="date" id="epm-date"></div>
+      <div class="fg"><label>Payment method</label>
+        <select id="epm-method"><option>Cash</option><option>Mobile Money</option><option>Bank transfer</option></select>
+      </div>
+    </div>
+    <div class="frow">
+      <div class="fg"><label>Notes</label><input type="text" id="epm-notes"></div>
+    </div>
+    <div class="hint-box" style="font-size:12px;">Changes here are logged in the activity log with your name, so corrections stay auditable.</div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModals()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitEditPayment()">💾 Save Correction</button>
     </div>
   </div>
 </div>
@@ -1031,6 +1152,10 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
       <div class="fg"><label>Gender</label><select id="pu-gender"><option value="">Select</option><option>Male</option><option>Female</option></select></div>
     </div>
     <div class="fg"><label>Boarding status</label><select id="pu-boarding"><option value="Day">Day</option><option value="Boarding">Boarding</option></select></div>
+    <div class="fg" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+      <input type="checkbox" id="pu-lunch" checked style="width:18px;height:18px;">
+      <label style="margin:0;">Takes lunch at school (uncheck if pupil goes home at midday — mainly for Nursery)</label>
+    </div>
     <div class="divider-label">Parent / Guardian</div>
     <div class="frow">
       <div class="fg"><label>Parent / Guardian name</label><input type="text" id="pu-parent"></div>
@@ -1058,18 +1183,21 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
       <div class="fg"><label>Full name</label><input type="text" id="ep-name"></div>
       <div class="fg"><label>Class</label><select id="ep-cls"></select></div>
     </div>
-    <div class="frow">
-      <div class="fg"><label>Boarding status</label><select id="ep-boarding"><option value="Day">Day</option><option value="Boarding">Boarding</option></select></div>
-      <div class="fg"><label>Enrolment status</label>
-        <select id="ep-status" onchange="toggleLeftBanner()">
-          <option value="Active">Active — enrolled this term</option>
-          <option value="Left">Left — withdrawn / transferred</option>
-          <option value="Graduated">Graduated</option>
-        </select>
-      </div>
+    <div class="fg"><label>Boarding status</label><select id="ep-boarding"><option value="Day">Day</option><option value="Boarding">Boarding</option></select></div>
+    <div class="fg" style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+      <input type="checkbox" id="ep-lunch" style="width:18px;height:18px;">
+      <label style="margin:0;">Takes lunch at school (uncheck if pupil goes home at midday — mainly for Nursery)</label>
     </div>
-    <div id="ep-left-banner" style="display:none;" class="hint-box" style="color:#8C2A2A;">
-      Marking this pupil as <b>Left</b> removes them from expected fees in the current and future terms. Their payment history from previous terms is kept in full.
+    <div class="fg" style="margin-top:8px;">
+      <label>Enrollment status</label>
+      <select id="ep-status" style="border-radius:6px;">
+        <option value="active">✅ Active — currently enrolled</option>
+        <option value="left">🚪 Left school — exclude from new term fees but keep payment history</option>
+        <option value="deferred">⏸ Deferred — temporarily away, may return</option>
+      </select>
+      <div id="ep-status-note" style="font-size:11px;color:#A33345;margin-top:4px;display:none;">
+        ⚠ This pupil will no longer appear in fee calculations or arrears for future terms. All past payment records are kept.
+      </div>
     </div>
     <div class="frow">
       <div class="fg"><label>Parent / Guardian name</label><input type="text" id="ep-parent"></div>
@@ -1137,10 +1265,10 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
     <input type="hidden" id="exm-id">
     <div class="frow">
       <div class="fg"><label>Date</label><input type="date" id="exm-date"></div>
-      <div class="fg"><label>Group</label><select id="exm-group" onchange="populateExpenditureCategoryOptions()"></select></div>
+      <div class="fg"><label>Expense Category</label><select id="exm-group" onchange="document.getElementById('exm-category').value=this.value;"></select></div>
     </div>
     <div class="frow">
-      <div class="fg"><label>Category</label><select id="exm-category"></select></div>
+      <input type="hidden" id="exm-category">
       <div class="fg"><label>Amount (UGX)</label><input type="number" id="exm-amount" placeholder="0"></div>
     </div>
     <div class="fg"><label>Description</label><input type="text" id="exm-description" placeholder="e.g. June Salary"></div>
@@ -1350,11 +1478,44 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate){display:none !importan
   </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ============== DATA LAYER (localStorage) ============== */
 const STORAGE_KEY = 'kabaga_fees_data_v2';
+const SUPABASE_URL = 'https://adpskscwhivyhbfzrtgh.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFkcHNrc2N3aGl2eWhiZnpydGdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNjM5OTksImV4cCI6MjA5NzYzOTk5OX0.g2zmdOMS5HRbEOMEQmbowjNNQapxmK6rXsE3JR-RiXI';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// SHA-256 hex hash, matching Postgres' encode(digest(text,'sha256'),'hex')
+// used when we seeded the users table. Used for all password checks now.
+async function sha256Hex(str){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
 const ALL_CLASSES = ['Baby','Middle','Top','P1','P2','P3','P4','P5','P6','P7'];
 const NURSERY = ['Baby','Middle','Top'];
+const LOWER_PRIMARY = ['P1','P2','P3'];
+const UPPER_PRIMARY = ['P4','P5','P6','P7'];
+const SUBJECTS_NURSERY = ['Languages','Social Development','Reading','Numeracy','Health Habits'];
+const SUBJECTS_LOWER = ['Reading','Mathematics','Literacy A','Literacy B','English'];
+const SUBJECTS_UPPER = ['English','Mathematics','Social Studies','Science','IRE'];
+const ASSESSMENTS = ['Beginning of Term','Mid Term','End of Term'];
+const EXPENSE_CATEGORIES = [
+  'Salary','Housing for Teachers','Food and Beverage','Firewood','Kitchen','Stationery',
+  'Office Equipment','Compound','Utilities','Mattress','Sanitation','Games and Sports',
+  'Administrative','Security','Building and Construction','Glasses / Plumbing','Other Expenses'
+];
+function buildExpenditureGroups(){
+  const o = {};
+  EXPENSE_CATEGORIES.forEach(c=>{ o[c] = [c]; });
+  return o;
+}
+
+function subjectsForClass(cls){
+  if(NURSERY.includes(cls)) return SUBJECTS_NURSERY;
+  if(LOWER_PRIMARY.includes(cls)) return SUBJECTS_LOWER;
+  return SUBJECTS_UPPER;
+}
 const PROMOTION_ORDER = ['Baby','Middle','Top','P1','P2','P3','P4','P5','P6','P7','Graduated'];
 function nextClassOf(cls){
   const i = PROMOTION_ORDER.indexOf(cls);
@@ -1366,11 +1527,11 @@ function nextClassOf(cls){
 const SESSION_KEY = 'kabaga_session_v1';
 const ROLES = ['Director','Bursar','Head Teacher','Accounts Assistant','Teacher'];
 const PERMISSIONS = {
-  Director:           {editFees:true,  editExpenditure:true,  editSalaries:true,  manageUsers:true,  approveBursaries:true, viewReports:true, closeTerms:true, promotePupils:true, manageBackups:true, registerPupils:true, recordPayments:true, printReceipts:true, recordExpenses:true, viewBalances:true, viewPupils:true, viewFeeStatus:true, viewFinance:true, manageUniforms:true, manageStaffRoster:true, manageDirectorFunds:true},
-  Bursar:             {editFees:false, editExpenditure:false, editSalaries:false, manageUsers:false, approveBursaries:false, viewReports:true, closeTerms:false, promotePupils:false, manageBackups:false, registerPupils:true, recordPayments:true, printReceipts:true, recordExpenses:true, viewBalances:true, viewPupils:true, viewFeeStatus:true, viewFinance:false, manageUniforms:true, manageStaffRoster:false, manageDirectorFunds:false},
-  'Head Teacher':     {editFees:false, editExpenditure:false, editSalaries:false, manageUsers:false, approveBursaries:false, viewReports:true, closeTerms:false, promotePupils:false, manageBackups:false, registerPupils:false, recordPayments:false, printReceipts:false, recordExpenses:false, viewBalances:true, viewPupils:true, viewFeeStatus:true, viewFinance:false, manageUniforms:false, manageStaffRoster:false, manageDirectorFunds:false},
-  'Accounts Assistant':{editFees:false, editExpenditure:true,  editSalaries:false, manageUsers:false, approveBursaries:false, viewReports:true, closeTerms:false, promotePupils:false, manageBackups:false, registerPupils:false, recordPayments:false, printReceipts:false, recordExpenses:true, viewBalances:false, viewPupils:false, viewFeeStatus:false, viewFinance:true, manageUniforms:false, manageStaffRoster:true, manageDirectorFunds:false},
-  Teacher:            {editFees:false, editExpenditure:false, editSalaries:false, manageUsers:false, approveBursaries:false, viewReports:false, closeTerms:false, promotePupils:false, manageBackups:false, registerPupils:false, recordPayments:false, printReceipts:false, recordExpenses:false, viewBalances:false, viewPupils:true, viewFeeStatus:true, viewFinance:false, manageUniforms:false, manageStaffRoster:false, manageDirectorFunds:false}
+  Director:           {editFees:true,  editExpenditure:true,  editSalaries:true,  manageUsers:true,  approveBursaries:true, viewReports:true, closeTerms:true, promotePupils:true, manageBackups:true, registerPupils:true, recordPayments:true, editPayments:true, printReceipts:true, recordExpenses:true, viewBalances:true, viewPupils:true, viewFeeStatus:true, viewFinance:true, manageUniforms:true, manageStaffRoster:true, manageDirectorFunds:true, manageScores:true},
+  Bursar:             {editFees:false, editExpenditure:false, editSalaries:false, manageUsers:false, approveBursaries:false, viewReports:true, closeTerms:false, promotePupils:false, manageBackups:false, registerPupils:true, recordPayments:true, editPayments:true, printReceipts:true, recordExpenses:true, viewBalances:true, viewPupils:true, viewFeeStatus:true, viewFinance:false, manageUniforms:true, manageStaffRoster:false, manageDirectorFunds:false, manageScores:false},
+  'Head Teacher':     {editFees:false, editExpenditure:false, editSalaries:false, manageUsers:false, approveBursaries:false, viewReports:true, closeTerms:false, promotePupils:false, manageBackups:false, registerPupils:false, recordPayments:false, editPayments:false, printReceipts:false, recordExpenses:false, viewBalances:true, viewPupils:true, viewFeeStatus:true, viewFinance:false, manageUniforms:false, manageStaffRoster:false, manageDirectorFunds:false, manageScores:true},
+  'Accounts Assistant':{editFees:false, editExpenditure:true,  editSalaries:false, manageUsers:false, approveBursaries:false, viewReports:true, closeTerms:false, promotePupils:false, manageBackups:false, registerPupils:false, recordPayments:false, editPayments:false, printReceipts:false, recordExpenses:true, viewBalances:false, viewPupils:false, viewFeeStatus:false, viewFinance:true, manageUniforms:false, manageStaffRoster:true, manageDirectorFunds:false, manageScores:false},
+  Teacher:            {editFees:false, editExpenditure:false, editSalaries:false, manageUsers:false, approveBursaries:false, viewReports:false, closeTerms:false, promotePupils:false, manageBackups:false, registerPupils:false, recordPayments:false, editPayments:false, printReceipts:false, recordExpenses:false, viewBalances:false, viewPupils:true, viewFeeStatus:true, viewFinance:false, manageUniforms:false, manageStaffRoster:false, manageDirectorFunds:false, manageScores:false}
 };
 function can(capability){
   if(!CURRENT_USER) return false;
@@ -1380,6 +1541,13 @@ function can(capability){
 // Simple, fast, NON-cryptographic hash — enough to avoid storing plain-text passwords on disk,
 // but this is client-side JS: anyone with the browser dev tools can read DB.users. It is access
 // control for honest day-to-day use, not protection against a determined attacker with the device.
+// Safety shim: some embedded browsers/webviews don't implement all console
+// methods (e.g. console.info), which previously crashed the whole app.
+if(typeof window.console !== 'object') window.console = {};
+['log','info','warn','error'].forEach(function(m){
+  if(typeof console[m] !== 'function') console[m] = function(){};
+});
+
 function simpleHash(str){
   let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
   for(let i=0;i<str.length;i++){
@@ -1448,6 +1616,7 @@ function defaultData(){
       {id:'KP012',name:'Sarah Namusoke',cls:'P4',gender:'Female',dob:'2015-05-19',parent:'Namusoke Betty',relation:'Mother',phone:'0701 120012',phone2:'',email:'',address:'Mityana',boarding:'Day',
         bursaryPct:50, negotiatedFee:100000, bursaryNotes:'Financial hardship — confirmed by home visit and local council letter.', approvedBy:'Director', previousArrears:0, arrearsNote:'', arrearsHistory:[], termHistory:[{term:'Term 1', year:2026, expected:190000, paid:190000, balance:0, openingArrearsBefore:0, arrearsPaidNow:0, closedOn:'2026-04-10'}], status:'Active'}
     ],
+    scores: [],
     payments: [
       {id:'KJS-0001',pupilId:'KP001',tuitionPaid:150000,lunchPaid:90000,boardingPaid:0,arrearsPaid:0,date:'2026-06-14',method:'Mobile Money',notes:'',receivedBy:'Bursar', term:'Term 2', year:2026},
       {id:'KJS-0002',pupilId:'KP002',tuitionPaid:120000,lunchPaid:90000,boardingPaid:0,arrearsPaid:0,date:'2026-06-13',method:'Cash',notes:'Instalment 1',receivedBy:'Bursar', term:'Term 2', year:2026},
@@ -1471,13 +1640,7 @@ function defaultData(){
     dcCounter: 3,
     usCounter: 3,
     staffCounter: 5,
-    expenditureGroups: {
-      'Staff Costs': ["Teachers' Salaries","Non-Teaching Staff Salaries","Teachers' Housing Rent","Preps / Extra-Teaching Allowances","NSSF Contributions","Staff Welfare"],
-      'Feeding Program': ["Maize Flour","Rice","Beans","Sugar","Cooking Oil","Firewood/Charcoal","Vegetables","Milk"],
-      'Academic & Administration': ["Stationery","Examination Printing","Report Cards","Internet & Airtime","Office Supplies"],
-      'Development & Innovation': ["Building Materials","Classroom Furniture","Innovation Projects","ICT Equipment","School Improvement Projects"],
-      'Utilities': ["Water","Electricity","Security","Cleaning Materials"]
-    },
+    expenditureGroups: buildExpenditureGroups(),
     staff: [
       {id:'ST-0001', name:'Nakirya Florence', type:'Teaching', role:'Class Teacher P4', salary:450000, housing:100000, preps:50000},
       {id:'ST-0002', name:'Mukasa Daniel', type:'Teaching', role:'Class Teacher P6', salary:480000, housing:100000, preps:60000},
@@ -1517,8 +1680,8 @@ function ensureDataShape(){
   if(!DB.currentTerm) DB.currentTerm = (DB.term||'Term 2 — 2026').split(' — ')[0] || 'Term 1';
   if(!DB.closedTerms) DB.closedTerms = [];
   if(!DB.archivedYears) DB.archivedYears = [];
+  if(!DB.scores) DB.scores = [];
   if(DB.pendingFees===undefined) DB.pendingFees = null;
-  if(DB.firebaseConfig===undefined) DB.firebaseConfig = null;
   if(!DB.users || DB.users.length===0) DB.users = [
     {id:'U001', username:'director', name:'School Director', role:'Director', passwordHash: simpleHash('kabaga2026'), active:true, createdOn:new Date().toISOString().split('T')[0]}
   ];
@@ -1539,16 +1702,7 @@ function ensureDataShape(){
   if(!DB.staffCounter) DB.staffCounter = (DB.staff||[]).length + 1;
   if(!DB.term) DB.term = 'Term 2 — 2026';
   if(!DB.negotiations) DB.negotiations = [];
-  if(!DB.expenditureGroups) DB.expenditureGroups = {
-    'Staff Costs': ["Teachers' Salaries","Non-Teaching Staff Salaries","Teachers' Housing Rent","Preps / Extra-Teaching Allowances","NSSF Contributions","Staff Welfare"],
-    'Feeding Program': ["Maize Flour","Rice","Beans","Sugar","Cooking Oil","Firewood/Charcoal","Vegetables","Milk"],
-    'Academic & Administration': ["Stationery","Examination Printing","Report Cards","Internet & Airtime","Office Supplies"],
-    'Development & Innovation': ["Building Materials","Classroom Furniture","Innovation Projects","ICT Equipment","School Improvement Projects"],
-    'Utilities': ["Water","Electricity","Security","Cleaning Materials"]
-  };
-  if(DB.expenditureGroups['Staff Costs'] && !DB.expenditureGroups['Staff Costs'].includes('Preps / Extra-Teaching Allowances')){
-    DB.expenditureGroups['Staff Costs'].push('Preps / Extra-Teaching Allowances');
-  }
+  DB.expenditureGroups = buildExpenditureGroups();
   if(!DB.expenditures) DB.expenditures = [];
   if(!DB.directorContributions) DB.directorContributions = [];
   if(!DB.uniformInventory) DB.uniformInventory = [];
@@ -1582,99 +1736,208 @@ function ensureDataShape(){
   (DB.directorContributions||[]).forEach(d=>{ if(d.term===undefined) d.term = DB.term; });
 }
 
-/* ============== FIREBASE SYNC ============== */
-let _fbApp = null;
-let _fbDB  = null;
-let _fbUnsub = null;   // real-time listener unsubscribe handle
-let _fbReady = false;
-
-function initFirebase(cfg){
+async function loadDB(){
+  let loadedFromCloud = false;
+  // Race Supabase load against a 6-second timeout so a slow connection
+  // never leaves the page hanging on startup.
   try{
-    if(_fbApp) _fbApp.delete();
-    _fbApp  = firebase.initializeApp(cfg, 'kabaga-' + Date.now());
-    _fbDB   = firebase.firestore(_fbApp);
-    _fbReady = true;
-    startFirestoreListener();
-    updateSyncBadge();
-    return true;
+    const timeout = new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),6000));
+    const fetch = sb.from('app_state').select('data, updated_at').eq('id','main').maybeSingle();
+    const { data: row, error } = await Promise.race([fetch, timeout.then(()=>{throw new Error('timeout')})]);
+    if(!error && row && row.data && Object.keys(row.data).length>0){
+      DB = row.data;
+      _lastServerUpdatedAt = row.updated_at || null;
+      ensureDataShape();
+      loadedFromCloud = true;
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
+    }
   }catch(e){
-    console.error('Firebase init failed:', e);
-    _fbReady = false;
-    updateSyncBadge();
-    return false;
+    console.warn('Could not load from server (using local cache):', e.message);
+  }
+  if(!loadedFromCloud){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw){
+        DB = JSON.parse(raw);
+        ensureDataShape();
+        // Flag that local data needs pushing to the server when possible.
+        localStorage.setItem(PENDING_SYNC_KEY, '1');
+      } else {
+        DB = defaultData();
+        saveAndSync();
+      }
+    }catch(e){
+      console.error('Failed to load data, using defaults', e);
+      DB = defaultData();
+      saveAndSync();
+    }
   }
 }
 
-function startFirestoreListener(){
-  if(_fbUnsub){ _fbUnsub(); _fbUnsub = null; }
-  if(!_fbDB) return;
-  _fbUnsub = _fbDB.collection('school').doc('data')
-    .onSnapshot(snap => {
-      if(snap.exists){
-        const remote = snap.data();
-        // Accept remote data if it is newer than what we have locally
-        if(remote && remote._ts && (!DB._ts || remote._ts > DB._ts)){
-          DB = remote;
-          ensureDataShape();
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
-          renderAll();
-          updateSyncBadge();
-        }
-      }
-      DB.syncStatus = 'synced';
-      DB.lastSyncedOn = new Date().toISOString();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
-      updateSyncBadge();
-    }, err => {
-      console.error('Firestore listener error:', err);
-      DB.syncStatus = 'error';
-      updateSyncBadge();
-    });
-}
+const PENDING_SYNC_KEY = 'kabaga_pending_sync_v1';
+let _lastServerUpdatedAt = null; // tracks what timestamp we last got from server
 
 function saveDB(){
-  DB._ts = Date.now();   // timestamp used to resolve which device has the latest data
+  // Save locally always.
+  window._lastSaveTime = Date.now();
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
     updateBackupStatus();
   }catch(e){
-    showToast('Could not save data locally — storage may be full.', 'error');
-  }
-  // Push to Firestore if connected
-  if(_fbDB && _fbReady){
-    _fbDB.collection('school').doc('data').set(DB)
-      .then(()=>{
-        DB.syncStatus = 'synced';
-        DB.lastSyncedOn = new Date().toISOString();
-        updateSyncBadge();
-      })
-      .catch(err =>{
-        console.error('Firestore write failed:', err);
-        DB.syncStatus = 'error';
-        updateSyncBadge();
-        showToast('Saved locally. Could not reach the cloud — will retry when connection is restored.', 'error');
-      });
+    showToast('Could not save data locally — storage may be blocked or full.', 'error');
+    showStorageWarningBanner();
   }
 }
 
-function loadDB(){
+// Call this ONLY after a real user action that changes data.
+function saveAndSync(){
+  saveAndSync();
+  localStorage.setItem(PENDING_SYNC_KEY, '1');
+  syncToServer();
+}
+
+function syncToServer(){
+  if(typeof sb === 'undefined' || !sb){ scheduleRetry(); return; }
+  if(!navigator.onLine){ updateSyncIndicator(false); return; }
+  if(syncInProgress) return;
+  if(!localStorage.getItem(PENDING_SYNC_KEY)) return;
+  syncInProgress = true;
+  updateSyncIndicator('saving');
+  // Before pushing, check if server has a newer version than what we loaded.
+  // If it does, someone else saved while we were working — we must not overwrite their data.
+  sb.from('app_state').select('updated_at').eq('id','main').maybeSingle()
+    .then(({data: meta, error: metaErr})=>{
+      if(!metaErr && meta && meta.updated_at && _lastServerUpdatedAt){
+        if(meta.updated_at > _lastServerUpdatedAt){
+          // Server is newer — pull it first, merge our changes on top, then push.
+          syncInProgress = false;
+          showToast('Merging changes from another device…', 'success');
+          fetchAndApplyRemote().then(()=>{
+            // Now re-apply any local unsaved changes by re-saving current DB
+            // (which already has our new data from the action that triggered this sync)
+            localStorage.setItem(PENDING_SYNC_KEY, '1');
+            syncToServer();
+          });
+          return;
+        }
+      }
+      // Server is same age or older — safe to push.
+      sb.from('app_state')
+        .upsert({ id:'main', data: DB, updated_at: new Date().toISOString() })
+        .then(({error})=>{
+          syncInProgress = false;
+          if(error){
+            console.warn('Sync error:', error.message);
+            updateSyncIndicator(false);
+            scheduleRetry(10000);
+          } else {
+            _lastServerUpdatedAt = new Date().toISOString();
+            localStorage.removeItem(PENDING_SYNC_KEY);
+            updateSyncIndicator(true);
+            if(localStorage.getItem(PENDING_SYNC_KEY)) syncToServer();
+          }
+        })
+        .catch(err=>{
+          syncInProgress = false;
+          updateSyncIndicator(false);
+          scheduleRetry(10000);
+        });
+    });
+}
+
+function scheduleRetry(ms=5000){
+  if(syncRetryTimer) clearTimeout(syncRetryTimer);
+  syncRetryTimer = setTimeout(()=>{ syncRetryTimer=null; syncToServer(); }, ms);
+}
+
+function updateSyncIndicator(state){
+  // Also update the header sync pill.
+  const hdrSync = document.getElementById('hdr-sync');
+  let el = document.getElementById('sync-indicator');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'sync-indicator';
+    el.style.cssText = 'position:fixed;bottom:10px;right:10px;padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;z-index:99999;font-family:inherit;transition:opacity 0.5s;';
+    document.body.appendChild(el);
+  }
+  if(state==='saving'){
+    el.style.opacity='1';
+    el.textContent = '↑ Saving…';
+    el.style.background='#EEF2FB'; el.style.color='#1B2C5E';
+    if(hdrSync){ hdrSync.textContent='🔄 Syncing…'; }
+  } else if(state===true){
+    el.textContent = '☁ Synced';
+    el.style.background='#E7F1E5'; el.style.color='#2F6B3A';
+    el.style.opacity='1';
+    setTimeout(()=>{ if(el.textContent==='☁ Synced') el.style.opacity='0.3'; }, 2500);
+    if(hdrSync){ hdrSync.textContent='🟢 Synced'; }
+  } else {
+    el.style.opacity='1';
+    el.textContent='⚠ Offline — changes saved here, will sync when reconnected';
+    el.style.background='#FBEAEA'; el.style.color='#A33345';
+    if(hdrSync){ hdrSync.textContent='🟡 Offline'; }
+  }
+}
+
+// Retry sync automatically when internet returns, and every 15s as a safety net.
+window.addEventListener('online', ()=>{
+  if(localStorage.getItem(PENDING_SYNC_KEY)) syncToServer();
+  pollForRemoteChanges();
+});
+setInterval(()=>{
+  if(localStorage.getItem(PENDING_SYNC_KEY) && navigator.onLine && !syncInProgress) syncToServer();
+}, 15000);
+// Only runs when the tab is visible (not wasting requests in background),
+// and skips polling if a local sync is in flight to avoid conflicts.
+// ── LIVE SYNC ──────────────────────────────────────────────────────────────
+// Simple, reliable approach: poll Supabase every 3 seconds.
+// No hash checks, no timestamp guards, no complex logic — just always fetch
+// and apply if we're not currently in the middle of saving our own data.
+let livePoller = null;
+
+function startLivePoller(){
+  if(livePoller) clearInterval(livePoller);
+  livePoller = setInterval(fetchAndApplyRemote, 3000);
+  // Also poll immediately when tab becomes visible again.
+  document.addEventListener('visibilitychange', ()=>{
+    if(!document.hidden) fetchAndApplyRemote();
+  });
+  // Poll immediately on start.
+  fetchAndApplyRemote();
+}
+
+async function fetchAndApplyRemote(){
+  if(typeof sb === 'undefined' || !sb) return;
+  if(syncInProgress) return;
   try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw){
-      DB = JSON.parse(raw);
-      ensureDataShape();
-    } else {
-      DB = defaultData();
-      saveDB();
-    }
+    const { data: row, error } = await sb
+      .from('app_state')
+      .select('data, updated_at')
+      .eq('id','main')
+      .maybeSingle();
+    if(error || !row || !row.data) return;
+    if(syncInProgress) return;
+    const msSinceLastSave = Date.now() - (window._lastSaveTime||0);
+    if(msSinceLastSave < 2000) return;
+    _lastServerUpdatedAt = row.updated_at || _lastServerUpdatedAt;
+    DB = row.data;
+    ensureDataShape();
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); }catch(e){}
+    renderAll();
+    const hdr = document.getElementById('hdr-sync');
+    if(hdr) hdr.textContent = '🟢 Live';
   }catch(e){
-    console.error('Failed to load data, using defaults', e);
-    DB = defaultData();
+    // silent — network blip, will retry in 3s
   }
-  // If Firebase config is already saved in DB, initialise it now
-  if(DB.firebaseConfig && DB.firebaseConfig.apiKey){
-    try{ initFirebase(DB.firebaseConfig); }catch(e){ console.warn('Firebase auto-init failed', e); }
-  }
+}
+
+function showStorageWarningBanner(){
+  if(document.getElementById('storage-warning-banner')) return;
+  const b = document.createElement('div');
+  b.id = 'storage-warning-banner';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#8C2A2A;color:#fff;text-align:center;padding:10px;font-weight:700;z-index:100000;font-size:13px;';
+  b.textContent = '⚠ Your browser is blocking storage for this file — nothing you do (including password changes) will be saved. Open this file through a local web server (e.g. python -m http.server) instead of double-clicking it.';
+  document.body.appendChild(b);
 }
 
 function updateBackupStatus(){
@@ -1686,17 +1949,23 @@ function updateBackupStatus(){
 }
 
 /* ============== HELPERS ============== */
-function standardFee(cls){ return (DB.fees[cls]||0) + DB.lunchFee; }
+function takesLunch(p){ return p.takesLunch !== false; } // default true for legacy pupils without this field
+function lunchPortion(p){ return takesLunch(p) ? DB.lunchFee : 0; }
+function standardFee(cls){ return (DB.fees[cls]||0) + DB.lunchFee; } // used for class-level "full fee" displays; per-pupil calcs use lunchPortion(p)
 function isBoarder(p){ return p.boarding==='Boarding'; }
 function boardingPortion(p){ return isBoarder(p) ? (DB.boardingFee||0) : 0; }
-function pupilGrossFee(p){ return (DB.fees[p.cls]||0) + DB.lunchFee + boardingPortion(p); } // standard fee incl. boarding, before bursary
+function pupilGrossFee(p){ return (DB.fees[p.cls]||0) + lunchPortion(p) + boardingPortion(p); } // standard fee incl. boarding, before bursary
 function tuitionPortion(p){ // negotiated tuition only (excludes lunch & boarding)
   if(p.negotiatedFee!==null && p.negotiatedFee!==undefined && p.negotiatedFee!==''){
     return Number(p.negotiatedFee);
   }
   return DB.fees[p.cls]||0;
 }
-function currentTermFee(p){ return tuitionPortion(p) + DB.lunchFee + boardingPortion(p); } // negotiated tuition + lunch + boarding
+function isActive(p){ return !p.enrollmentStatus || p.enrollmentStatus === 'active'; }
+function currentTermFee(p){
+  if(!isActive(p)) return 0; // left/deferred pupils owe nothing for new term
+  return tuitionPortion(p) + lunchPortion(p) + boardingPortion(p);
+}
 function hasBursary(p){ return p.negotiatedFee!==null && p.negotiatedFee!==undefined && p.negotiatedFee!=='' && Number(p.negotiatedFee) < (DB.fees[p.cls]||0); }
 function bursaryAmount(p){ return hasBursary(p) ? (DB.fees[p.cls]||0) - Number(p.negotiatedFee) : 0; }
 
@@ -1765,12 +2034,15 @@ function showPage(name, btn){
   if(name==='pupils') renderPupils();
   if(name==='bursaries'){ renderBursaryTable(); renderNegotiationHistory(); renderBursaryMetrics(); }
   if(name==='arrears') renderArrearsPage();
+  if(name==='reminders') renderRemindersPage();
+  if(name==='results') renderResultsPage();
   if(name==='fees') renderFeePage();
   if(name==='expenditure') renderExpenditurePage();
   if(name==='directors') renderDirectorPage();
   if(name==='uniforms') renderUniformsPage();
   if(name==='finance') renderFinancePage();
   if(name==='settings') renderSchoolSettingsPage();
+  if(name==='budget') renderBudgetPage();
   if(name==='reports') renderClassReport();
   if(name==='backup') updateBackupStatus();
   if(CURRENT_USER) reapplyElementPermissions();
@@ -1963,7 +2235,11 @@ function renderPayments(){
         <td class="right" style="font-weight:700;color:${bal>0?'#A33345':'#2F6B3A'};">${bal>0?fmtUGX(bal):'Cleared'}</td>
         <td style="font-size:12px;color:var(--ink-soft);">${pay.date}</td>
         <td>${statusBadge(s)}</td>
-        <td class="no-print"><button class="btn btn-ghost btn-sm" onclick="printReceiptFor('${pay.id}')">🖨️</button></td>
+        <td class="no-print">
+          <button class="btn btn-ghost btn-sm" onclick="printReceiptFor('${pay.id}')">🖨️</button>
+          ${can('editPayments')?`<button class="btn btn-ghost btn-sm" onclick="openEditPayment('${pay.id}')" title="Edit this payment">✎</button>
+          <button class="btn btn-ghost btn-sm" style="color:#A33345;" onclick="deletePaymentConfirm('${pay.id}')" title="Delete this payment">🗑️</button>`:''}
+        </td>
       </tr>`;
     }).join('');
   }
@@ -1971,8 +2247,10 @@ function renderPayments(){
 }
 
 function openPayModal(){
-  const sel = document.getElementById('pm-pupil');
-  sel.innerHTML = DB.pupils.map(p=>`<option value="${p.id}">${p.name} — ${p.cls}</option>`).join('') || '<option value="">No pupils registered</option>';
+  populatePupilClassFilter();
+  document.getElementById('pm-class-filter').value = 'all';
+  document.getElementById('pm-pupil-search').value = '';
+  populatePupilSelect();
   document.getElementById('pm-date').value = new Date().toISOString().split('T')[0];
   document.getElementById('pm-tuition').value = 0;
   document.getElementById('pm-lunch').value = 0;
@@ -1980,6 +2258,24 @@ function openPayModal(){
   document.getElementById('pm-arrears').value = 0;
   document.getElementById('pm-notes').value = '';
   document.getElementById('payModal').classList.add('open');
+  updatePayHint();
+}
+
+function populatePupilClassFilter(){
+  const sel = document.getElementById('pm-class-filter');
+  const classesInUse = [...new Set(DB.pupils.map(p=>p.cls))].sort();
+  sel.innerHTML = '<option value="all">All classes</option>' + classesInUse.map(c=>`<option value="${c}">${c}</option>`).join('');
+}
+
+function populatePupilSelect(){
+  const sel = document.getElementById('pm-pupil');
+  const cls = document.getElementById('pm-class-filter').value;
+  const q = document.getElementById('pm-pupil-search').value.trim().toLowerCase();
+  const prevSelected = sel.value;
+  let list = DB.pupils.filter(p => isActive(p) && (cls==='all' || p.cls===cls) && (q==='' || p.name.toLowerCase().includes(q)));
+  list = list.sort((a,b)=>a.name.localeCompare(b.name));
+  sel.innerHTML = list.map(p=>`<option value="${p.id}">${p.name} — ${p.cls}</option>`).join('') || '<option value="">No matching pupils</option>';
+  if(list.some(p=>p.id===prevSelected)) sel.value = prevSelected;
   updatePayHint();
 }
 
@@ -1991,20 +2287,23 @@ function updatePayHint(){
   if(!p){ hint.innerHTML = 'Select a pupil to see fee balance.'; if(boardingRow) boardingRow.style.display='none'; return; }
   const paid = paidTotals(p.id);
   const balTuition = tuitionPortion(p) - paid.tuition;
-  const balLunch = DB.lunchFee - paid.lunch;
   const arrearsBal = Math.max((p.previousArrears||0) - paid.arrears, 0);
   const bursaryNote = hasBursary(p) ? ` · <span style="color:#5B3A8C;font-weight:700;">On bursary (${p.bursaryPct||0}% off)</span>` : '';
+  let lunchNote = '';
+  if(takesLunch(p)){
+    const balLunch = lunchPortion(p) - paid.lunch;
+    lunchNote = ` · Lunch balance: <b>${fmtUGX(Math.max(balLunch,0))}</b>`;
+  } else {
+    lunchNote = ` · <span style="color:var(--ink-soft);">Goes home at midday — no lunch fee</span>`;
+  }
   let boardingNote = '';
-  const boardingInput = document.getElementById('pm-boarding');
   if(isBoarder(p)){
     const balBoarding = boardingPortion(p) - paid.boarding;
     boardingNote = ` · Boarding balance: <b style="color:${balBoarding>0?'#A33345':'#2F6B3A'};">${fmtUGX(Math.max(balBoarding,0))}</b>`;
-    if(boardingInput){ boardingInput.disabled = false; }
   } else {
     boardingNote = ` · <span style="color:var(--ink-soft);">Day pupil — no boarding fee</span>`;
-    if(boardingInput){ boardingInput.value = 0; boardingInput.disabled = true; }
   }
-  hint.innerHTML = `<b>${p.name}</b> (${p.cls}) — Tuition balance: <b>${fmtUGX(Math.max(balTuition,0))}</b> · Lunch balance: <b>${fmtUGX(Math.max(balLunch,0))}</b>${boardingNote} · Arrears balance: <b style="color:${arrearsBal>0?'#A33345':'#2F6B3A'};">${fmtUGX(arrearsBal)}</b>${bursaryNote}`;
+  hint.innerHTML = `<b>${p.name}</b> (${p.cls}) — Tuition+Lunch balance: <b>${fmtUGX(Math.max(balTuition+(takesLunch(p)?lunchPortion(p)-paid.lunch:0),0))}</b>${lunchNote}${boardingNote} · Arrears balance: <b style="color:${arrearsBal>0?'#A33345':'#2F6B3A'};">${fmtUGX(arrearsBal)}</b>${bursaryNote}<br><span style="font-size:11px;color:var(--ink-soft);">Enter the combined amount paid — it's applied automatically: arrears, then lunch, then tuition, then boarding.</span>`;
 }
 
 function submitPayment(){
@@ -2012,23 +2311,89 @@ function submitPayment(){
   const p = getPupil(pupilId);
   if(!p){ showToast('Please register a pupil first.', 'error'); return; }
   if(isTermClosed(DB.currentTerm, DB.academicYear)){ showToast(`${DB.currentTerm} — ${DB.academicYear} is closed. Open the next term in School Settings before recording new payments.`, 'error'); return; }
-  const tuition = parseInt(document.getElementById('pm-tuition').value) || 0;
-  const lunch = parseInt(document.getElementById('pm-lunch').value) || 0;
-  const boarding = isBoarder(p) ? (parseInt(document.getElementById('pm-boarding').value) || 0) : 0;
-  const arrears = parseInt(document.getElementById('pm-arrears').value) || 0;
+  const amountPaid = parseInt(document.getElementById('pm-tuition').value) || 0;
+  const paid = paidTotals(p.id);
+  // Auto-allocate the combined amount in order: arrears, then lunch, then tuition, then boarding.
+  const arrearsBalNow = Math.max((p.previousArrears||0) - paid.arrears, 0);
+  const lunchBal = takesLunch(p) ? Math.max(lunchPortion(p) - paid.lunch, 0) : 0;
+  const tuitionBal = Math.max(tuitionPortion(p) - paid.tuition, 0);
+  const boardingBal = isBoarder(p) ? Math.max(boardingPortion(p) - paid.boarding, 0) : 0;
+  let remaining = amountPaid;
+  const arrears = Math.min(remaining, arrearsBalNow);
+  remaining -= arrears;
+  const lunch = takesLunch(p) ? Math.min(remaining, lunchBal) : 0;
+  remaining -= lunch;
+  const tuition = Math.min(remaining, tuitionBal);
+  remaining -= tuition;
+  const boarding = isBoarder(p) ? Math.min(remaining, boardingBal) : 0;
+  remaining -= boarding;
+  // Any leftover beyond all balances is still recorded as tuition (treated as an advance payment).
+  const tuitionFinal = tuition + remaining;
   const date = document.getElementById('pm-date').value || new Date().toISOString().split('T')[0];
   const method = document.getElementById('pm-method').value;
   const receivedBy = document.getElementById('pm-receivedby').value.trim();
   const notes = document.getElementById('pm-notes').value.trim();
-  if(tuition===0 && lunch===0 && boarding===0 && arrears===0){ showToast('Enter at least one payment amount.', 'error'); return; }
+  if(tuitionFinal===0 && lunch===0 && boarding===0 && arrears===0){ showToast('Enter at least one payment amount.', 'error'); return; }
   const payId = 'KJS-' + String(DB.receiptCounter).padStart(4,'0');
   DB.receiptCounter++;
-  DB.payments.unshift({id:payId, pupilId, tuitionPaid:tuition, lunchPaid:lunch, boardingPaid:boarding, arrearsPaid:arrears, date, method, notes, receivedBy, term:DB.currentTerm, year:DB.academicYear});
-  logActivity('Recorded payment', `${fmtUGX(tuition+lunch+boarding+arrears)} for ${p.name} (${p.id})`);
-  saveDB();
+  DB.payments.unshift({id:payId, pupilId, tuitionPaid:tuitionFinal, lunchPaid:lunch, boardingPaid:boarding, arrearsPaid:arrears, date, method, notes, receivedBy, term:DB.currentTerm, year:DB.academicYear});
+  logActivity('Recorded payment', `${fmtUGX(tuitionFinal+lunch+boarding+arrears)} for ${p.name} (${p.id})`);
+  saveAndSync();
   closeModals();
   renderAll();
-  showToast('Payment of ' + fmtUGX(tuition+lunch+boarding+arrears) + ' recorded for ' + p.name, 'success');
+  showToast('Payment of ' + fmtUGX(tuitionFinal+lunch+boarding+arrears) + ' recorded for ' + p.name, 'success');
+}
+
+function openEditPayment(payId){
+  if(!can('editPayments')){ showToast('Only the Director or Bursar can edit payments.', 'error'); return; }
+  const pay = DB.payments.find(x=>x.id===payId);
+  if(!pay) return;
+  document.getElementById('epm-id').value = pay.id;
+  document.getElementById('epm-tuition').value = pay.tuitionPaid||0;
+  document.getElementById('epm-lunch').value = pay.lunchPaid||0;
+  document.getElementById('epm-boarding').value = pay.boardingPaid||0;
+  document.getElementById('epm-arrears').value = pay.arrearsPaid||0;
+  document.getElementById('epm-date').value = pay.date;
+  document.getElementById('epm-method').value = pay.method||'Cash';
+  document.getElementById('epm-notes').value = pay.notes||'';
+  document.getElementById('editPaymentModal').classList.add('open');
+}
+
+function submitEditPayment(){
+  if(!can('editPayments')){ showToast('Only the Director or Bursar can edit payments.', 'error'); return; }
+  const id = document.getElementById('epm-id').value;
+  const pay = DB.payments.find(x=>x.id===id);
+  if(!pay) return;
+  const p = getPupil(pay.pupilId);
+  const before = pay.tuitionPaid+pay.lunchPaid+(pay.boardingPaid||0)+pay.arrearsPaid;
+  pay.tuitionPaid = parseInt(document.getElementById('epm-tuition').value) || 0;
+  pay.lunchPaid = parseInt(document.getElementById('epm-lunch').value) || 0;
+  pay.boardingPaid = parseInt(document.getElementById('epm-boarding').value) || 0;
+  pay.arrearsPaid = parseInt(document.getElementById('epm-arrears').value) || 0;
+  pay.date = document.getElementById('epm-date').value || pay.date;
+  pay.method = document.getElementById('epm-method').value;
+  pay.notes = document.getElementById('epm-notes').value.trim();
+  const after = pay.tuitionPaid+pay.lunchPaid+pay.boardingPaid+pay.arrearsPaid;
+  logActivity('Edited payment', `${pay.id} for ${p?p.name:'unknown pupil'} — ${fmtUGX(before)} → ${fmtUGX(after)} (corrected by ${CURRENT_USER.name})`);
+  saveAndSync();
+  closeModals();
+  renderAll();
+  showToast('Payment record updated', 'success');
+}
+
+function deletePaymentConfirm(payId){
+  if(!can('editPayments')){ showToast('Only the Director or Bursar can delete payments.', 'error'); return; }
+  const pay = DB.payments.find(x=>x.id===payId);
+  if(!pay) return;
+  const p = getPupil(pay.pupilId);
+  const total = pay.tuitionPaid+pay.lunchPaid+(pay.boardingPaid||0)+pay.arrearsPaid;
+  if(confirm(`Delete this payment of ${fmtUGX(total)} for ${p?p.name:'this pupil'} (receipt ${pay.id})? This cannot be undone.`)){
+    DB.payments = DB.payments.filter(x=>x.id!==payId);
+    logActivity('Deleted payment', `${payId} for ${p?p.name:'unknown pupil'} — ${fmtUGX(total)} (removed by ${CURRENT_USER.name})`);
+    saveAndSync();
+    renderAll();
+    showToast('Payment record deleted', 'success');
+  }
 }
 
 function printReceiptFor(payId){
@@ -2062,42 +2427,32 @@ function renderPupils(){
   const q = (document.getElementById('stu-search').value||'').toLowerCase();
   const cl = document.getElementById('stu-cls').value;
   const sf = document.getElementById('stu-status').value;
-  const ef = document.getElementById('stu-enrol') ? document.getElementById('stu-enrol').value : 'active';
+  const enroll = document.getElementById('stu-enrollment') ? document.getElementById('stu-enrollment').value : 'active';
   let rows = DB.pupils.filter(p=>p.name.toLowerCase().includes(q));
   rows = rows.filter(p=> cl==='all' || p.cls===cl);
   rows = rows.filter(p=> sf==='all' || getStatus(p)===sf);
-  // Enrolment filter
-  if(ef==='active') rows = rows.filter(p=> p.status!=='Left' && p.status!=='Graduated');
-  else if(ef==='left') rows = rows.filter(p=> p.status==='Left');
-  // all = no filter
-
+  // Enrollment filter
+  if(enroll === 'active') rows = rows.filter(p=> isActive(p));
+  else if(enroll === 'left') rows = rows.filter(p=> p.enrollmentStatus==='left');
+  else if(enroll === 'deferred') rows = rows.filter(p=> p.enrollmentStatus==='deferred');
+  // else 'all' — no filter
   const tb = document.getElementById('students-table');
   if(rows.length===0){
-    const msg = ef==='left'
-      ? 'No pupils marked as Left. To mark a pupil as Left, open their record and change Enrolment Status.'
-      : 'No pupils match your filters.<br>Click "Register Pupil" to add one.';
-    tb.innerHTML = `<tr><td colspan="11"><div class="empty">${msg}</div></td></tr>`;
+    tb.innerHTML = `<tr><td colspan="12"><div class="empty">No pupils match your filters.<br>Click "Register Pupil" to add one.</div></td></tr>`;
   } else {
     tb.innerHTML = rows.map((p,i)=>{
-      const isLeft = p.status==='Left';
-      const tot = isLeft ? 0 : currentTermFee(p);  // Left pupils have no current expected fees
+      const tot = currentTermFee(p);
       const paid = paidTotals(p.id).tuition + paidTotals(p.id).lunch + paidTotals(p.id).boarding;
-      const pct = tot>0 ? Math.round(paid/tot*100) : (isLeft ? 100 : 0);
+      const pct = tot>0 ? Math.round(paid/tot*100) : 0;
       const fill = pct>=80?'#2F6B3A':pct>=40?'#C98A2E':'#A33345';
-      const s = isLeft ? 'left' : getStatus(p);
-      const defaulter = !isLeft && isDefaulter(p);
-      const rowStyle = isLeft ? 'opacity:0.6;background:#FAFAF8;' : '';
-
-      // Class + status badges
-      let classBadges = p.cls;
-      if(p.status==='Graduated') classBadges += ` <span class="tag" style="background:#EFE9F7;color:#5B3A8C;font-size:10px;">Graduated</span>`;
-      if(isLeft) classBadges += ` <span class="tag" style="background:#FBE7E5;color:#8C2A2A;font-size:10px;">Left ${p.leftTerm||''} ${p.leftYear||''}</span>`;
-
-      return `<tr class="${defaulter?'defaulter-row':''}" style="${rowStyle}">
+      const s = getStatus(p);
+      const defaulter = isDefaulter(p);
+      return `<tr class="${defaulter?'defaulter-row':''}">
         <td><div class="avatar" style="background:${avatarColor(i)};">${initials(p.name)}</div></td>
-        <td><b>${p.name}</b>${hasBursary(p)?' <span class="badge badge-bursary">Bursary</span>':''}${defaulter?' <span class="badge badge-defaulter">Defaulter</span>':''}</td>
-        <td>${classBadges}</td>
-        <td><span class="tag ${isBoarder(p)?'tag-p':'tag-n'}" style="${isBoarder(p)?'background:var(--blue-bg);color:var(--blue);':'background:#F1EEE5;color:var(--ink-soft);'}">${isBoarder(p)?'Boarding':'Day'}</span></td>
+        <td><b style="font-family:monospace;font-size:12px;">${p.id}</b></td>
+        <td><b>${p.name}</b>${hasBursary(p)?' <span class="badge badge-bursary">Bursary</span>':''}${defaulter?' <span class="badge badge-defaulter">Defaulter</span>':''}${p.enrollmentStatus==='left'?' <span class="tag" style="background:#FBEAEA;color:#A33345;font-size:10px;">Left</span>':''}${p.enrollmentStatus==='deferred'?' <span class="tag" style="background:#FFF3E0;color:#C98A2E;font-size:10px;">Deferred</span>':''}</td>
+        <td>${p.cls}${p.status==='Graduated'?' <span class="tag" style="background:#EFE9F7;color:#5B3A8C;font-size:10px;">Graduated</span>':''}</td>
+        <td><span class="tag ${isBoarder(p)?'tag-p':'tag-n'}" style="${isBoarder(p)?'background:var(--blue-bg);color:var(--blue);':'background:#F1EEE5;color:var(--ink-soft);'}">${isBoarder(p)?'Boarding':'Day'}</span>${takesLunch(p)?'':' <span class="tag" style="background:#F1EEE5;color:var(--ink-soft);font-size:10px;">No lunch</span>'}</td>
         <td>
           <div style="font-weight:600;">${p.parent||'—'}</div>
           <div style="font-size:11px;color:var(--ink-soft);">${p.relation||''}</div>
@@ -2106,17 +2461,13 @@ function renderPupils(){
           ${p.phone?`<div style="font-size:12px;">📞 ${p.phone}</div>`:'<div style="font-size:12px;color:var(--ink-soft);">No phone on file</div>'}
           ${p.phone2?`<div style="font-size:11px;color:var(--ink-soft);">📞 ${p.phone2}</div>`:''}
         </td>
-        <td class="right">${isLeft?'<span style="color:var(--ink-soft);">—</span>':fmtUGX(tot)}</td>
+        <td class="right">${fmtUGX(tot)}</td>
         <td class="right" style="color:#2F6B3A;font-weight:700;">${fmtUGX(paid)}</td>
         <td>
-          ${isLeft
-            ? `<div style="font-size:11px;color:var(--ink-soft);">No longer enrolled</div>`
-            : `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${fill};"></div></div>
-               <div style="font-size:11px;color:var(--ink-soft);margin-top:2px;">${pct}%</div>`}
+          <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${fill};"></div></div>
+          <div style="font-size:11px;color:var(--ink-soft);margin-top:2px;">${pct}%</div>
         </td>
-        <td>${isLeft
-          ? `<span class="tag" style="background:#FBE7E5;color:#8C2A2A;">Left</span>`
-          : statusBadge(s)}</td>
+        <td>${statusBadge(s)}</td>
         <td class="no-print"><button class="btn btn-ghost btn-sm" onclick="openEditPupil('${p.id}')">✎ Edit</button> <button class="btn btn-ghost btn-sm" onclick="openLedgerModal('${p.id}')">📒 Ledger</button></td>
       </tr>`;
     }).join('');
@@ -2128,6 +2479,7 @@ function openPupilModal(){
   ['pu-name','pu-dob','pu-parent','pu-phone','pu-phone2','pu-email','pu-address'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('pu-gender').value='';
   document.getElementById('pu-boarding').value='Day';
+  document.getElementById('pu-lunch').checked = true;
   document.getElementById('pupilModal').classList.add('open');
 }
 
@@ -2135,7 +2487,9 @@ function submitPupil(){
   const name = document.getElementById('pu-name').value.trim();
   if(!name){ showToast('Please enter the pupil\'s name.', 'error'); return; }
   const cls = document.getElementById('pu-cls').value;
-  const newId = 'KP' + String(Date.now()).slice(-6);
+  if(!DB.pupilRegCounter) DB.pupilRegCounter = 1;
+  const newId = 'KJS-' + DB.academicYear + '-' + String(DB.pupilRegCounter).padStart(4,'0');
+  DB.pupilRegCounter++;
   DB.pupils.push({
     id:newId, name, cls,
     gender:document.getElementById('pu-gender').value,
@@ -2147,10 +2501,11 @@ function submitPupil(){
     email:document.getElementById('pu-email').value.trim(),
     address:document.getElementById('pu-address').value.trim(),
     boarding:document.getElementById('pu-boarding').value || 'Day',
+    takesLunch: document.getElementById('pu-lunch').checked,
     bursaryPct:0, negotiatedFee:null, bursaryNotes:'', approvedBy:'', previousArrears:0, arrearsNote:''
   });
   logActivity('Registered pupil', `${name} (${newId})`);
-  saveDB();
+  saveAndSync();
   closeModals();
   renderAll();
   showToast(name + ' registered successfully', 'success');
@@ -2163,57 +2518,42 @@ function openEditPupil(id){
   document.getElementById('ep-name').value = p.name;
   document.getElementById('ep-cls').value = p.cls;
   document.getElementById('ep-boarding').value = p.boarding || 'Day';
-  document.getElementById('ep-status').value = p.status || 'Active';
+  document.getElementById('ep-lunch').checked = p.takesLunch !== false;
+  document.getElementById('ep-status').value = p.enrollmentStatus || 'active';
+  const note = document.getElementById('ep-status-note');
+  if(note) note.style.display = (p.enrollmentStatus && p.enrollmentStatus!=='active') ? 'block' : 'none';
+  document.getElementById('ep-status').onchange = function(){
+    if(note) note.style.display = this.value !== 'active' ? 'block' : 'none';
+  };
   document.getElementById('ep-parent').value = p.parent||'';
   document.getElementById('ep-relation').value = p.relation||'Father';
   document.getElementById('ep-phone').value = p.phone||'';
   document.getElementById('ep-phone2').value = p.phone2||'';
   document.getElementById('ep-email').value = p.email||'';
   document.getElementById('ep-address').value = p.address||'';
-  toggleLeftBanner();
   document.getElementById('editPupilModal').classList.add('open');
-}
-
-function toggleLeftBanner(){
-  const banner = document.getElementById('ep-left-banner');
-  const status = document.getElementById('ep-status').value;
-  if(banner) banner.style.display = (status==='Left') ? 'block' : 'none';
 }
 
 function submitEditPupil(){
   const id = document.getElementById('ep-id').value;
   const p = getPupil(id);
   if(!p) return;
-  const oldStatus = p.status;
-  const newStatus = document.getElementById('ep-status').value;
   p.name = document.getElementById('ep-name').value.trim() || p.name;
   p.cls = document.getElementById('ep-cls').value;
   p.boarding = document.getElementById('ep-boarding').value || 'Day';
-  p.status = newStatus;
+  p.takesLunch = document.getElementById('ep-lunch').checked;
+  p.enrollmentStatus = document.getElementById('ep-status').value || 'active';
   p.parent = document.getElementById('ep-parent').value.trim();
   p.relation = document.getElementById('ep-relation').value;
   p.phone = document.getElementById('ep-phone').value.trim();
   p.phone2 = document.getElementById('ep-phone2').value.trim();
   p.email = document.getElementById('ep-email').value.trim();
   p.address = document.getElementById('ep-address').value.trim();
-  if(newStatus==='Left' && oldStatus!=='Left'){
-    p.leftOn = new Date().toISOString().split('T')[0];
-    p.leftTerm = DB.currentTerm;
-    p.leftYear = DB.academicYear;
-    logActivity('Pupil marked as Left', `${p.name} (${p.id}) — left ${DB.currentTerm} ${DB.academicYear}`);
-  } else if(newStatus!=='Left' && oldStatus==='Left'){
-    p.leftOn = null; p.leftTerm = null; p.leftYear = null;
-    logActivity('Pupil re-enrolled', `${p.name} (${p.id}) — status changed back to ${newStatus}`);
-  } else {
-    logActivity('Updated pupil', `${p.name} (${p.id})`);
-  }
-  saveDB();
+  logActivity('Updated pupil', `${p.name} (${p.id})`);
+  saveAndSync();
   closeModals();
   renderAll();
-  const msg = newStatus==='Left'
-    ? `${p.name} marked as Left — removed from expected fees. Payment history preserved.`
-    : 'Pupil details updated';
-  showToast(msg, 'success');
+  showToast('Pupil details updated', 'success');
 }
 
 function deletePupilConfirm(){
@@ -2224,7 +2564,7 @@ function deletePupilConfirm(){
     DB.pupils = DB.pupils.filter(x=>x.id!==id);
     DB.payments = DB.payments.filter(x=>x.pupilId!==id);
     DB.negotiations = DB.negotiations.filter(x=>x.pupilId!==id);
-    saveDB();
+    saveAndSync();
     closeModals();
     renderAll();
     showToast('Pupil deleted', 'success');
@@ -2316,7 +2656,7 @@ function submitBursary(){
   // log to negotiation history
   DB.negotiations.unshift({date, pupilId:p.id, parent:p.parent||'—', amount:neg, reason:notes||'No reason recorded', approvedBy});
   logActivity('Approved bursary', `${p.name}: negotiated fee ${fmtUGX(neg)} (${pct}% off), approved by ${approvedBy}`);
-  saveDB();
+  saveAndSync();
   closeModals();
   renderAll();
   showToast('Bursary saved for ' + p.name, 'success');
@@ -2331,7 +2671,7 @@ function clearBursary(){
     p.bursaryPct = 0;
     p.bursaryNotes = '';
     p.approvedBy = '';
-    saveDB();
+    saveAndSync();
     closeModals();
     renderAll();
     showToast('Bursary removed for ' + p.name, 'success');
@@ -2356,8 +2696,500 @@ function renderNegotiationHistory(){
 }
 
 /* ============== ARREARS PAGE ============== */
+/* ============== FEE REMINDERS (SMS, tap-to-send) ============== */
+/* ============== TERM BUDGET GENERATOR ============== */
+function renderBudgetPage(){
+  const srcTerm = document.getElementById('bgt-source-term').value;
+  const srcYear = document.getElementById('bgt-source-year').value.trim();
+  const tgtTerm = document.getElementById('bgt-target-term').value;
+  const tgtYear = document.getElementById('bgt-target-year').value.trim();
+  const el = document.getElementById('budget-content');
+
+  // ── PUPILS ──────────────────────────────────────────────────────────────
+  const pupils = DB.pupils.filter(p=>p.cls);
+  const boarders = pupils.filter(p=>isBoarder(p));
+  const lunchPupils = pupils.filter(p=>takesLunch(p));
+
+  // ── INCOME ACTUALS (source term) ─────────────────────────────────────────
+  const srcPay = DB.payments.filter(p=>p.term===srcTerm && String(p.year)===srcYear);
+  const actTuition   = srcPay.reduce((s,p)=>s+(p.tuitionPaid||0),0);
+  const actLunch     = srcPay.reduce((s,p)=>s+(p.lunchPaid||0),0);
+  const actBoarding  = srcPay.reduce((s,p)=>s+(p.boardingPaid||0),0);
+  const actArrears   = srcPay.reduce((s,p)=>s+(p.arrearsPaid||0),0);
+  const actTotalInc  = actTuition+actLunch+actBoarding+actArrears;
+
+  // ── INCOME EXPECTED (source term, 100% collection) ───────────────────────
+  const expTuition  = pupils.reduce((s,p)=>s+tuitionPortion(p),0);
+  const expLunch    = lunchPupils.reduce((s,p)=>s+lunchPortion(p),0);
+  const expBoarding = boarders.reduce((s,p)=>s+boardingPortion(p),0);
+  const expTotal    = expTuition+expLunch+expBoarding;
+
+  // ── COLLECTION RATES (source term) ──────────────────────────────────────
+  // How much of what was owed did we actually collect?
+  const rTuition  = expTuition  > 0 ? actTuition/expTuition   : 0.85;
+  const rLunch    = expLunch    > 0 ? actLunch/expLunch        : 0.85;
+  const rBoarding = expBoarding > 0 ? actBoarding/expBoarding  : 0.85;
+
+  // ── SMART INCOME PROJECTIONS ─────────────────────────────────────────────
+  // Project: full expected amount × collection rate from last term.
+  // Arrears projection: 70% of any outstanding balance (conservative).
+  const outstandingArrears = pupils.reduce((s,p)=>{
+    const paid = paidTotals(p.id);
+    return s + Math.max(0, (p.previousArrears||0) - paid.arrears);
+  },0);
+  // Also carry forward any this-term arrears not yet collected
+  const thisTermUnpaid = pupils.reduce((s,p)=>{
+    const paid = paidTotals(p.id);
+    return s + Math.max(0, currentTermFee(p) - (paid.tuition+paid.lunch+paid.boarding));
+  },0);
+  const projectedArrears = Math.round((outstandingArrears + thisTermUnpaid) * 0.70);
+
+  const incRows = [
+    { label:'Tuition Fees',
+      note:`${pupils.length} pupils × avg fee × ${Math.round(rTuition*100)}% collection rate`,
+      actual: actTuition,
+      projected: Math.round(expTuition * Math.min(rTuition * 1.05, 1)) // aim 5% improvement
+    },
+    { label:'Lunch Fees',
+      note:`${lunchPupils.length} lunch pupils × ${fmtUGX(DB.lunchFee||0)} × ${Math.round(rLunch*100)}% rate`,
+      actual: actLunch,
+      projected: Math.round(expLunch * Math.min(rLunch * 1.05, 1))
+    },
+    { label:'Boarding Fees',
+      note:`${boarders.length} boarders × ${fmtUGX(DB.boardingFee||0)} × ${Math.round(rBoarding*100)}% rate`,
+      actual: actBoarding,
+      projected: Math.round(expBoarding * Math.min(rBoarding * 1.05, 1))
+    },
+    { label:'Arrears Recovery',
+      note:`70% of UGX ${fmtUGX(outstandingArrears+thisTermUnpaid)} outstanding (conservative)`,
+      actual: actArrears,
+      projected: projectedArrears
+    },
+  ];
+  const projTotalInc = incRows.reduce((s,r)=>s+r.projected,0);
+
+  // ── EXPENDITURE ACTUALS (source term) ────────────────────────────────────
+  const srcExp = (DB.expenditures||[]).filter(e=>e.term===srcTerm && String(e.year)===srcYear);
+  const byCategory = {};
+  EXPENSE_CATEGORIES.forEach(c=>{ byCategory[c]=0; });
+  srcExp.forEach(e=>{
+    const cat = e.category||e.group||'Other Expenses';
+    byCategory[cat] = (byCategory[cat]||0) + (Number(e.amount)||0);
+  });
+  const actTotalExp = Object.values(byCategory).reduce((a,b)=>a+b,0);
+
+  // ── SMART EXPENDITURE PROJECTIONS ────────────────────────────────────────
+  // Rules per category type:
+  // FIXED (salary, housing): carry forward exactly — these don't change term to term
+  // VARIABLE (food, firewood, kitchen): scale by boarding count, add 5% for cost of living
+  // ONE-OFF (building, equipment, mattress): halve if large (likely non-recurring), else carry forward
+  // DEFAULT: carry forward with 3% buffer
+  const FIXED = ['Salary','Housing for Teachers','Administrative','Security','Utilities'];
+  const VARIABLE = ['Food and Beverage','Firewood','Kitchen','Sanitation'];
+  const ONEOFF = ['Building and Construction','Glasses / Plumbing','Office Equipment','Mattress','Games and Sports'];
+
+  const expRows = EXPENSE_CATEGORIES.map((cat,i)=>{
+    const actual = byCategory[cat]||0;
+    let projected = actual;
+    let note = 'Based on previous term actual';
+    if(actual === 0){
+      projected = 0;
+      note = 'No spending last term — budgeted at 0 (adjust if needed)';
+    } else if(FIXED.includes(cat)){
+      projected = actual;
+      note = 'Fixed cost — carried forward unchanged';
+    } else if(VARIABLE.includes(cat)){
+      projected = Math.round(actual * 1.05);
+      note = `Variable cost — ${actual>0?'+5% for cost of living':'carried forward'}`;
+    } else if(ONEOFF.includes(cat)){
+      // If it was a large one-off spend (>20% of total exp), budget conservatively
+      if(actual > actTotalExp*0.15){
+        projected = Math.round(actual * 0.5);
+        note = 'Large one-off spend — budgeted at 50% (likely non-recurring)';
+      } else {
+        projected = actual;
+        note = 'Carried forward from last term';
+      }
+    } else {
+      projected = Math.round(actual * 1.03);
+      note = '3% buffer added';
+    }
+    return { cat, actual, projected, note };
+  });
+  const projTotalExp = expRows.reduce((s,r)=>s+r.projected,0);
+  const projSurplus = projTotalInc - projTotalExp;
+
+  // ── RENDER ───────────────────────────────────────────────────────────────
+  el.innerHTML = `
+    <div style="text-align:center;margin-bottom:20px;">
+      <img src="icon-192.png" style="width:60px;height:60px;object-fit:contain;" onerror="this.style.display='none'">
+      <div style="font-size:18px;font-weight:800;margin-top:6px;">KABAGA JUNIOR SCHOOL</div>
+      <div style="font-size:15px;font-weight:700;color:#1B2C5E;margin-top:4px;">BUDGET FOR ${tgtTerm.toUpperCase()} ${tgtYear}</div>
+      <div style="font-size:11px;color:var(--ink-soft);margin-top:4px;">Projected from ${srcTerm} ${srcYear} actuals &nbsp;·&nbsp; ${pupils.length} enrolled pupils &nbsp;·&nbsp; Prepared by ${CURRENT_USER?CURRENT_USER.name:''} &nbsp;·&nbsp; ${new Date().toLocaleDateString('en-UG',{day:'2-digit',month:'long',year:'numeric'})}</div>
+    </div>
+
+    <!-- INCOME TABLE -->
+    <div style="margin-bottom:20px;">
+      <div style="background:#1B2C5E;color:#fff;font-weight:800;font-size:13px;padding:10px 14px;border-radius:6px 6px 0 0;">
+        📥 INCOME PROJECTION
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#EEF2FB;">
+            <th style="padding:8px 12px;text-align:left;width:30%;">Source</th>
+            <th style="padding:8px 12px;text-align:right;width:18%;">${srcTerm} Actual</th>
+            <th style="padding:8px 12px;text-align:left;width:32%;">Projection Basis</th>
+            <th style="padding:8px 12px;text-align:right;width:20%;">${tgtTerm} Budget</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${incRows.map((r,i)=>`
+            <tr style="border-bottom:1px solid #F0EBE3;">
+              <td style="padding:8px 12px;font-weight:600;">${r.label}</td>
+              <td style="padding:8px 12px;text-align:right;color:var(--ink-soft);">${fmtUGX(r.actual)}</td>
+              <td style="padding:8px 12px;font-size:11px;color:#5B6B8A;font-style:italic;">${r.note}</td>
+              <td style="padding:8px 12px;text-align:right;">
+                <input type="number" value="${r.projected}" id="bgt-inc-${i}" onchange="updateBudgetTotals()"
+                  style="width:130px;text-align:right;border:1px solid #C0D0E8;border-radius:4px;padding:4px 8px;font-size:13px;font-weight:700;color:#1B2C5E;">
+              </td>
+            </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="background:#1B2C5E;color:#fff;font-weight:800;">
+            <td style="padding:10px 12px;">TOTAL INCOME</td>
+            <td style="padding:10px 12px;text-align:right;">${fmtUGX(actTotalInc)}</td>
+            <td style="padding:10px 12px;font-size:11px;opacity:0.8;">
+              ${expTotal>0?`Collection rate last term: ${Math.round(actTotalInc/expTotal*100)}%`:''}
+            </td>
+            <td style="padding:10px 12px;text-align:right;font-size:15px;" id="bgt-total-income">${fmtUGX(projTotalInc)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- EXPENDITURE TABLE -->
+    <div style="margin-bottom:20px;">
+      <div style="background:#8C2A2A;color:#fff;font-weight:800;font-size:13px;padding:10px 14px;border-radius:6px 6px 0 0;">
+        📤 EXPENDITURE PROJECTION
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#FBEAEA;">
+            <th style="padding:8px 12px;text-align:left;width:30%;">Category</th>
+            <th style="padding:8px 12px;text-align:right;width:18%;">${srcTerm} Actual</th>
+            <th style="padding:8px 12px;text-align:left;width:32%;">Projection Basis</th>
+            <th style="padding:8px 12px;text-align:right;width:20%;">${tgtTerm} Budget</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${expRows.map((r,i)=>`
+            <tr style="border-bottom:1px solid #F0EBE3;${r.actual===0?'opacity:0.5':''}">
+              <td style="padding:8px 12px;font-weight:600;">${r.cat}</td>
+              <td style="padding:8px 12px;text-align:right;color:var(--ink-soft);">${fmtUGX(r.actual)}</td>
+              <td style="padding:8px 12px;font-size:11px;color:#8C4A4A;font-style:italic;">${r.note}</td>
+              <td style="padding:8px 12px;text-align:right;">
+                <input type="number" value="${r.projected}" id="bgt-exp-${i}" onchange="updateBudgetTotals()"
+                  style="width:130px;text-align:right;border:1px solid #E0B8B8;border-radius:4px;padding:4px 8px;font-size:13px;font-weight:700;color:#8C2A2A;">
+              </td>
+            </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr style="background:#8C2A2A;color:#fff;font-weight:800;">
+            <td style="padding:10px 12px;">TOTAL EXPENDITURE</td>
+            <td style="padding:10px 12px;text-align:right;">${fmtUGX(actTotalExp)}</td>
+            <td style="padding:10px 12px;font-size:11px;opacity:0.8;">${actTotalExp>0?`Last term spend recorded`:'No expenditure recorded last term'}</td>
+            <td style="padding:10px 12px;text-align:right;font-size:15px;" id="bgt-total-exp">${fmtUGX(projTotalExp)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- SUMMARY BAR -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;border-radius:8px;overflow:hidden;margin-bottom:16px;">
+      <div style="background:#1B2C5E;color:#fff;padding:16px;text-align:center;">
+        <div style="font-size:11px;opacity:0.8;margin-bottom:4px;">TOTAL PROJECTED INCOME</div>
+        <div style="font-size:20px;font-weight:800;" id="bgt-sum-inc">${fmtUGX(projTotalInc)}</div>
+      </div>
+      <div style="background:#8C2A2A;color:#fff;padding:16px;text-align:center;">
+        <div style="font-size:11px;opacity:0.8;margin-bottom:4px;">TOTAL PROJECTED EXPENDITURE</div>
+        <div style="font-size:20px;font-weight:800;" id="bgt-sum-exp">${fmtUGX(projTotalExp)}</div>
+      </div>
+      <div style="background:${projSurplus>=0?'#2F6B3A':'#A33345'};color:#fff;padding:16px;text-align:center;">
+        <div style="font-size:11px;opacity:0.8;margin-bottom:4px;" id="bgt-sum-lbl">${projSurplus>=0?'PROJECTED SURPLUS':'PROJECTED DEFICIT'}</div>
+        <div style="font-size:20px;font-weight:800;" id="bgt-sum-bal">${fmtUGX(Math.abs(projSurplus))}</div>
+      </div>
+    </div>
+
+    <!-- ASSUMPTIONS NOTE -->
+    <div style="background:#F5F0E8;border-left:4px solid #C98A2E;padding:12px 16px;border-radius:0 6px 6px 0;font-size:12px;margin-bottom:12px;">
+      <b>📌 Projection assumptions used:</b><br>
+      • Income: full expected fees × last term's collection rate, with 5% improvement target on each line<br>
+      • Salary &amp; fixed costs: carried forward unchanged (no inflation assumed)<br>
+      • Food, firewood &amp; kitchen: +5% for cost of living<br>
+      • Large one-off spends (&gt;15% of total expenditure): budgeted at 50% as likely non-recurring<br>
+      • Arrears recovery: 70% of total outstanding balance (conservative)<br>
+      • All figures are editable — adjust any line to reflect known changes before printing
+    </div>
+
+    <div class="no-print" style="font-size:11px;color:var(--ink-soft);">
+      💡 Edit any figure above — totals update instantly. Click <b>🖨️ Print Budget</b> for a clean printable copy.
+    </div>
+  `;
+}
+
+function updateBudgetTotals(){
+  let totalInc = 0;
+  for(let i=0;i<4;i++){
+    const el=document.getElementById('bgt-inc-'+i);
+    if(el) totalInc+=parseInt(el.value)||0;
+  }
+  let totalExp = 0;
+  for(let i=0;i<EXPENSE_CATEGORIES.length;i++){
+    const el=document.getElementById('bgt-exp-'+i);
+    if(el) totalExp+=parseInt(el.value)||0;
+  }
+  const bal=totalInc-totalExp;
+  const d=id=>document.getElementById(id);
+  if(d('bgt-total-income')) d('bgt-total-income').textContent=fmtUGX(totalInc);
+  if(d('bgt-total-exp'))    d('bgt-total-exp').textContent=fmtUGX(totalExp);
+  if(d('bgt-sum-inc'))      d('bgt-sum-inc').textContent=fmtUGX(totalInc);
+  if(d('bgt-sum-exp'))      d('bgt-sum-exp').textContent=fmtUGX(totalExp);
+  if(d('bgt-sum-bal'))      d('bgt-sum-bal').textContent=fmtUGX(Math.abs(bal));
+  if(d('bgt-sum-lbl'))      d('bgt-sum-lbl').textContent=bal>=0?'PROJECTED SURPLUS':'PROJECTED DEFICIT';
+  if(d('bgt-sum-bal')){
+    d('bgt-sum-bal').parentElement.style.background=bal>=0?'#2F6B3A':'#A33345';
+  }
+}
+
+function renderRemindersPage(){
+  const sel = document.getElementById('rem-class-filter');
+  const classesInUse = [...new Set(DB.pupils.map(p=>p.cls))].sort();
+  sel.innerHTML = '<option value="all">All classes</option>' + classesInUse.map(c=>`<option value="${c}">${c}</option>`).join('');
+  renderRemindersTable();
+}
+
+function reminderPhone(p){
+  // Try primary phone first, fall back to secondary.
+  if(p.phone && p.phone.trim()) return p.phone.trim();
+  if(p.phone2 && p.phone2.trim()) return p.phone2.trim();
+  return '';
+}
+
+function buildReminderMessage(p, balance){
+  const template = document.getElementById('rem-template').value;
+  return template
+    .replace(/{NAME}/g, p.name)
+    .replace(/{CLASS}/g, p.cls)
+    .replace(/{BALANCE}/g, fmtUGX(balance))
+    .replace(/{TERM}/g, DB.currentTerm)
+    .replace(/{YEAR}/g, DB.academicYear);
+}
+
+function renderRemindersTable(){
+  const clsFilter = document.getElementById('rem-class-filter').value;
+  const q = (document.getElementById('rem-search').value||'').toLowerCase();
+  let rows = DB.pupils
+    .filter(p=>isActive(p)) // left/deferred pupils excluded from reminders
+    .map(p=>({p, balance: balanceDue(p)}))
+    .filter(r=>r.balance>0)
+    .filter(r=>(clsFilter==='all'||r.p.cls===clsFilter) && r.p.name.toLowerCase().includes(q))
+    .sort((a,b)=>a.p.name.localeCompare(b.p.name));
+
+  const allWithBalance = DB.pupils.map(p=>({p, balance: balanceDue(p)})).filter(r=>r.balance>0);
+  const totalOutstanding = allWithBalance.reduce((s,r)=>s+r.balance,0);
+  const noPhoneCount = allWithBalance.filter(r=>!reminderPhone(r.p)).length;
+  document.getElementById('rem-count').textContent = allWithBalance.length;
+  document.getElementById('rem-total').textContent = fmtUGX(totalOutstanding);
+  document.getElementById('rem-nophone').textContent = noPhoneCount;
+
+  const tb = document.getElementById('reminders-table');
+  document.getElementById('reminders-empty').style.display = rows.length===0 ? 'block' : 'none';
+  tb.innerHTML = rows.map(r=>{
+    const phone = reminderPhone(r.p);
+    const msg = buildReminderMessage(r.p, r.balance);
+    const smsHref = phone ? `sms:${encodeURIComponent(phone)}?body=${encodeURIComponent(msg)}` : '';
+    return `<tr>
+      <td><b>${r.p.name}</b></td>
+      <td>${r.p.cls}</td>
+      <td class="right" style="color:#A33345;font-weight:700;">${fmtUGX(r.balance)}</td>
+      <td>${phone ? phone : '<span style="color:var(--ink-soft);">No phone on file</span>'}</td>
+      <td class="no-print">${phone ? `<a class="btn btn-primary btn-sm" href="${smsHref}">📱 Send SMS</a>` : '<span style="color:var(--ink-soft);font-size:12px;">—</span>'}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ============== ACADEMIC RESULTS ============== */
+function renderResultsPage(){
+  const clsSel = document.getElementById('res-cls');
+  clsSel.innerHTML = ALL_CLASSES.map(c=>`<option value="${c}">${c}</option>`).join('');
+  document.getElementById('res-permission-note').style.display = can('manageScores') ? 'none' : 'block';
+  onResultsClassChange();
+
+  const ovCls = document.getElementById('res-overview-cls');
+  ovCls.innerHTML = ALL_CLASSES.map(c=>`<option value="${c}">${c}</option>`).join('');
+  renderResultsOverview();
+}
+
+function onResultsClassChange(){
+  const cls = document.getElementById('res-cls').value;
+  const pupilSel = document.getElementById('res-pupil');
+  const pupils = DB.pupils.filter(p=>p.cls===cls).sort((a,b)=>a.name.localeCompare(b.name));
+  pupilSel.innerHTML = pupils.map(p=>`<option value="${p.id}">${p.name} (${p.id})</option>`).join('') || '<option value="">No pupils in this class</option>';
+  loadScoreEntryForm();
+}
+
+function getScoreRecord(pupilId, term, year, assessment){
+  return DB.scores.find(s=>s.pupilId===pupilId && s.term===term && s.year===year && s.assessment===assessment);
+}
+
+function loadScoreEntryForm(){
+  const pupilId = document.getElementById('res-pupil').value;
+  const assessment = document.getElementById('res-assessment').value;
+  const formEl = document.getElementById('res-entry-form');
+  const p = getPupil(pupilId);
+  if(!p){ formEl.innerHTML = '<div class="empty">Select a class and pupil.</div>'; return; }
+
+  const subjects = subjectsForClass(p.cls);
+  const existing = getScoreRecord(pupilId, DB.currentTerm, DB.academicYear, assessment);
+  const marks = existing ? existing.marks : {};
+  const readOnly = !can('manageScores');
+
+  formEl.innerHTML = `
+    <div style="font-weight:700;margin-bottom:8px;">${p.name} — ${p.cls} · ${assessment} · ${DB.currentTerm}, ${DB.academicYear}</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Subject</th><th style="width:140px;">Score (out of 100)</th></tr></thead>
+        <tbody>
+          ${subjects.map(subj=>`<tr>
+            <td>${subj}</td>
+            <td><input type="number" min="0" max="100" class="res-score-input" data-subject="${subj}" value="${marks[subj]!==undefined?marks[subj]:''}" ${readOnly?'disabled':''} style="width:90px;"></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="frow" style="margin-top:8px;">
+      <div class="fg" style="flex:1;"><label>Teacher's comment (optional)</label><input type="text" id="res-comment" value="${existing?(existing.comment||''):''}" ${readOnly?'disabled':''}></div>
+    </div>
+    ${readOnly?'':'<button class="btn btn-primary" onclick="saveScores()">💾 Save Scores</button>'}
+  `;
+}
+
+function saveScores(){
+  if(!can('manageScores')){ showToast('Only the Head Teacher or Director can enter scores.', 'error'); return; }
+  const pupilId = document.getElementById('res-pupil').value;
+  const p = getPupil(pupilId);
+  if(!p){ showToast('Select a pupil first.', 'error'); return; }
+  const assessment = document.getElementById('res-assessment').value;
+  const marks = {};
+  document.querySelectorAll('.res-score-input').forEach(inp=>{
+    const val = inp.value;
+    if(val!==''){ marks[inp.dataset.subject] = Math.max(0, Math.min(100, parseInt(val)||0)); }
+  });
+  const comment = document.getElementById('res-comment').value.trim();
+  let rec = getScoreRecord(pupilId, DB.currentTerm, DB.academicYear, assessment);
+  if(rec){
+    rec.marks = marks; rec.comment = comment; rec.recordedBy = CURRENT_USER.name; rec.recordedOn = new Date().toISOString().split('T')[0];
+  } else {
+    DB.scores.push({
+      id:'SC'+Date.now(), pupilId, term:DB.currentTerm, year:DB.academicYear, assessment,
+      marks, comment, recordedBy:CURRENT_USER.name, recordedOn:new Date().toISOString().split('T')[0]
+    });
+  }
+  logActivity('Recorded scores', `${assessment} — ${p.name} (${p.id})`);
+  saveAndSync();
+  renderResultsOverview();
+  showToast('Scores saved for ' + p.name, 'success');
+}
+
+function renderResultsOverview(){
+  const cls = document.getElementById('res-overview-cls').value;
+  const assessmentFilter = document.getElementById('res-overview-assessment').value;
+  const subjects = subjectsForClass(cls);
+  const pupils = DB.pupils.filter(p=>p.cls===cls).sort((a,b)=>a.name.localeCompare(b.name));
+  const records = DB.scores.filter(s=>s.term===DB.currentTerm && s.year===DB.academicYear && (assessmentFilter==='all'||s.assessment===assessmentFilter) && pupils.some(p=>p.id===s.pupilId));
+
+  const head = document.getElementById('res-overview-head');
+  const body = document.getElementById('res-overview-body');
+  const empty = document.getElementById('res-overview-empty');
+
+  if(records.length===0){
+    head.innerHTML=''; body.innerHTML=''; empty.style.display='block'; return;
+  }
+  empty.style.display='none';
+
+  head.innerHTML = `<tr><th>Pupil</th><th>Assessment</th>${subjects.map(s=>`<th class="right">${s}</th>`).join('')}<th class="right">Average</th></tr>`;
+  body.innerHTML = records
+    .sort((a,b)=>{
+      const pa=getPupil(a.pupilId), pb=getPupil(b.pupilId);
+      return (pa?pa.name:'').localeCompare(pb?pb.name:'') || a.assessment.localeCompare(b.assessment);
+    })
+    .map(rec=>{
+      const p = getPupil(rec.pupilId);
+      const vals = subjects.map(s=>rec.marks[s]);
+      const filled = vals.filter(v=>v!==undefined);
+      const avg = filled.length ? Math.round(filled.reduce((a,b)=>a+b,0)/filled.length) : null;
+      return `<tr>
+        <td><b>${p?p.name:'Unknown'}</b></td>
+        <td>${rec.assessment}</td>
+        ${subjects.map(s=>`<td class="right">${rec.marks[s]!==undefined?rec.marks[s]:'—'}</td>`).join('')}
+        <td class="right" style="font-weight:700;">${avg!==null?avg:'—'}</td>
+      </tr>`;
+    }).join('');
+}
+
+/* ---- Parent results lookup (no login required) ---- */
+function openParentResultsLookup(){
+  document.getElementById('passwordGate').style.display = 'none';
+  document.getElementById('parentResultsGate').style.display = 'flex';
+  document.getElementById('prl-admission').value = '';
+  document.getElementById('prl-phone').value = '';
+  document.getElementById('prl-error').textContent = '';
+  document.getElementById('prl-result').innerHTML = '';
+}
+function closeParentResultsLookup(){
+  document.getElementById('parentResultsGate').style.display = 'none';
+  document.getElementById('passwordGate').style.display = 'flex';
+}
+function runParentResultsLookup(){
+  const admission = document.getElementById('prl-admission').value.trim().toUpperCase();
+  const phoneRaw = document.getElementById('prl-phone').value.trim().replace(/\s+/g,'');
+  const errEl = document.getElementById('prl-error');
+  const resultEl = document.getElementById('prl-result');
+  errEl.textContent = ''; resultEl.innerHTML = '';
+  if(!admission || !phoneRaw){ errEl.textContent = 'Enter both the admission number and phone number.'; return; }
+  const p = DB.pupils.find(x=>x.id.toUpperCase()===admission);
+  const norm = s => (s||'').replace(/\s+/g,'');
+  if(!p || (norm(p.phone)!==phoneRaw && norm(p.phone2)!==phoneRaw)){
+    errEl.textContent = 'No matching pupil found — check the admission number and phone number.';
+    return;
+  }
+  const records = DB.scores.filter(s=>s.pupilId===p.id && s.term===DB.currentTerm && s.year===DB.academicYear);
+  if(records.length===0){
+    resultEl.innerHTML = `<div class="hint-box" style="text-align:left;margin-top:14px;">No results have been entered yet for <b>${p.name}</b> this term (${DB.currentTerm}, ${DB.academicYear}).</div>`;
+    return;
+  }
+  const subjects = subjectsForClass(p.cls);
+  resultEl.innerHTML = `<div class="hint-box" style="text-align:left;margin-top:14px;">
+    <div style="font-weight:700;font-size:15px;">${p.name} — ${p.cls}</div>
+    <div style="font-size:12px;color:var(--ink-soft);margin-bottom:6px;">${DB.currentTerm}, ${DB.academicYear}</div>
+    ${ASSESSMENTS.map(a=>{
+      const rec = records.find(r=>r.assessment===a);
+      if(!rec) return `<div style="margin-top:8px;"><b>${a}:</b> <span style="color:var(--ink-soft);">Not yet recorded</span></div>`;
+      const vals = subjects.map(s=>rec.marks[s]).filter(v=>v!==undefined);
+      const avg = vals.length ? Math.round(vals.reduce((x,y)=>x+y,0)/vals.length) : null;
+      return `<div style="margin-top:10px;border-top:1px solid #E5E0D5;padding-top:8px;">
+        <b>${a}</b>${avg!==null?` — Average: <b>${avg}</b>`:''}
+        <table style="width:100%;margin-top:4px;font-size:13px;">
+          ${subjects.map(s=>`<tr><td>${s}</td><td style="text-align:right;font-weight:600;">${rec.marks[s]!==undefined?rec.marks[s]:'—'}</td></tr>`).join('')}
+        </table>
+        ${rec.comment?`<div style="font-size:12px;margin-top:4px;font-style:italic;">"${rec.comment}"</div>`:''}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 function renderArrearsPage(){
-  const defaulters = DB.pupils.filter(p=>isDefaulter(p));
+  const defaulters = DB.pupils.filter(p=>isActive(p)&&isDefaulter(p));
   let totalArrears=0;
   defaulters.forEach(p=>{ totalArrears += Math.max((p.previousArrears||0)-paidTotals(p.id).arrears,0); });
   let grandTotal=0;
@@ -2370,7 +3202,7 @@ function renderArrearsPage(){
 
 function renderArrearsTable(){
   const q = (document.getElementById('arr-search').value||'').toLowerCase();
-  const defaulters = DB.pupils.filter(p=>isDefaulter(p) && p.name.toLowerCase().includes(q));
+  const defaulters = DB.pupils.filter(p=>isActive(p)&&isDefaulter(p) && p.name.toLowerCase().includes(q));
   const tb = document.getElementById('arrears-table');
   const emptyEl = document.getElementById('arrears-empty');
   if(defaulters.length===0){
@@ -2412,14 +3244,14 @@ function submitArrears(){
   const note = document.getElementById('am-note').value.trim();
   p.previousArrears = amount;
   p.arrearsNote = note;
-  saveDB();
+  saveAndSync();
   closeModals();
   renderAll();
   showToast('Arrears recorded for ' + p.name, 'success');
 }
 
 function printDefaultersReport(){
-  const defaulters = DB.pupils.filter(p=>isDefaulter(p));
+  const defaulters = DB.pupils.filter(p=>isActive(p)&&isDefaulter(p));
   const body = document.getElementById('defaulters-body');
   let totalArrears=0;
   let html = `<div style="text-align:center;font-size:12px;color:#666;margin-bottom:10px;">${DB.term} · Generated ${new Date().toLocaleDateString()}</div>`;
@@ -2499,7 +3331,7 @@ function savePendingFees(){
   const boardingFee = parseInt(document.getElementById('ft-boarding-input').value) || 0;
   if(lunchFee<=0 || boardingFee<=0){ showToast('Enter valid lunch and boarding fees.', 'error'); return; }
   DB.pendingFees = {fees, lunchFee, boardingFee};
-  saveDB();
+  saveAndSync();
   renderAll();
   showToast('Next term\'s fees are saved and queued — they will apply when you open the next term.', 'success');
 }
@@ -2508,7 +3340,7 @@ function clearPendingFees(){
   if(!DB.pendingFees) return;
   if(!confirm('Clear the pre-set fees for next term? The next term will then open using the current term\'s fee schedule.')) return;
   DB.pendingFees = null;
-  saveDB();
+  saveAndSync();
   renderAll();
   showToast('Pre-set next-term fees cleared.', 'success');
 }
@@ -2532,10 +3364,12 @@ function renderFeeBreakdown(){
 
 function renderLunchSummary(){
   const el = document.getElementById('lunch-summary');
-  const totalExpected = DB.pupils.length * DB.lunchFee;
+  const lunchPupils = DB.pupils.filter(p=>takesLunch(p));
+  const totalExpected = lunchPupils.length * DB.lunchFee;
   const totalPaid = DB.payments.reduce((s,p)=>s+p.lunchPaid,0);
   const pct = totalExpected>0 ? Math.round(totalPaid/totalExpected*100) : 0;
   el.innerHTML = `
+    <div class="kpi-mini"><span>Pupils on lunch</span><b>${lunchPupils.length} of ${DB.pupils.length}</b></div>
     <div class="kpi-mini"><span>Expected</span><b>${fmtUGX(totalExpected)}</b></div>
     <div class="kpi-mini"><span>Collected</span><b style="color:#2F6B3A;">${fmtUGX(totalPaid)}</b></div>
     <div class="progress-bar" style="margin-top:8px;"><div class="progress-fill" style="width:${pct}%;background:${pct>=80?'#2F6B3A':pct>=50?'#C98A2E':'#A33345'};"></div></div>
@@ -2564,7 +3398,7 @@ function saveFees(){
     if(inp) DB.fees[c] = parseInt(inp.value) || 0;
   });
   logActivity('Updated tuition fees', `Current term: ${DB.currentTerm} — ${DB.academicYear}`);
-  saveDB();
+  saveAndSync();
   renderAll();
   showToast('Tuition fees updated for all classes', 'success');
 }
@@ -2574,7 +3408,7 @@ function saveLunch(){
   if(!v || v<=0){ showToast('Enter a valid lunch fee amount.', 'error'); return; }
   DB.lunchFee = v;
   logActivity('Updated lunch fee', fmtUGX(v));
-  saveDB();
+  saveAndSync();
   renderAll();
   showToast('Lunch fee updated to ' + fmtUGX(v), 'success');
 }
@@ -2584,7 +3418,7 @@ function saveBoarding(){
   if(!v || v<=0){ showToast('Enter a valid boarding fee amount.', 'error'); return; }
   DB.boardingFee = v;
   logActivity('Updated boarding fee', fmtUGX(v));
-  saveDB();
+  saveAndSync();
   renderAll();
   showToast('Boarding fee updated to ' + fmtUGX(v), 'success');
 }
@@ -2598,8 +3432,7 @@ function nextTermName(){
   if(idx===-1 || idx>=DB.terms.length-1) return null;
   return DB.terms[idx+1];
 }
-function activePupils(){ return DB.pupils.filter(p=>p.status!=='Graduated' && p.status!=='Left'); }
-function enrolledPupils(){ return DB.pupils.filter(p=>p.status!=='Graduated'); } // includes Left for history
+function activePupils(){ return DB.pupils.filter(p=>p.status!=='Graduated'); }
 
 function closeCurrentTerm(){
   if(isTermClosed(DB.currentTerm, DB.academicYear)){ showToast('This term is already closed.', 'error'); return; }
@@ -2622,7 +3455,7 @@ function closeCurrentTerm(){
   });
   DB.closedTerms.push({term:DB.currentTerm, year:DB.academicYear, closedOn:closeDate, totalExpected, totalPaid, totalBalance, pupilCount:activePupils().length});
   logActivity('Closed term', `${DB.currentTerm} — ${DB.academicYear}: Expected ${fmtUGX(totalExpected)}, Collected ${fmtUGX(totalPaid)}, Balance ${fmtUGX(totalBalance)}`);
-  saveDB();
+  saveAndSync();
   renderAll();
   showToast(`${DB.currentTerm} — ${DB.academicYear} closed. Balances carried forward to the next term.`, 'success');
 }
@@ -2642,7 +3475,7 @@ function openNewTerm(){
     DB.pendingFees = null;
   }
   logActivity('Opened term', `${next} — ${DB.academicYear}`);
-  saveDB();
+  saveAndSync();
   renderAll();
   showToast(`${next} — ${DB.academicYear} is now open.`, 'success');
 }
@@ -2662,7 +3495,7 @@ function promotePupils(){
   DB.promotionLog.push({year:DB.academicYear, date:new Date().toISOString().split('T')[0], count:details.length, details});
   DB.yearPromoted = true;
   logActivity('Promoted pupils', `${details.length} pupils promoted for Academic Year ${DB.academicYear+1}`);
-  saveDB();
+  saveAndSync();
   renderAll();
   showToast(`Promoted ${details.length} pupils to their new classes.`, 'success');
 }
@@ -2681,7 +3514,7 @@ function archiveAcademicYear(){
   DB.yearPromoted = false;
   DB.term = `${DB.currentTerm} — ${DB.academicYear}`;
   logActivity('Archived academic year', `Archived ${DB.academicYear-1}; opened ${DB.currentTerm} — ${DB.academicYear}`);
-  saveDB();
+  saveAndSync();
   renderAll();
   showToast(`Academic Year archived. ${DB.currentTerm} — ${DB.academicYear} is now open.`, 'success');
 }
@@ -2709,14 +3542,6 @@ function computeCarriedForward(){
 }
 
 function renderSchoolSettingsPage(){
-  // Firebase panel — show/hide based on connection state
-  const hasConfig = DB.firebaseConfig && DB.firebaseConfig.apiKey;
-  const connPanel = document.getElementById('fb-connected-panel');
-  const setupPanel = document.getElementById('fb-setup-panel');
-  if(connPanel) connPanel.style.display = (_fbReady || hasConfig) ? 'block' : 'none';
-  if(setupPanel) setupPanel.style.display = (_fbReady || hasConfig) ? 'none' : 'block';
-  renderSyncStatusDetail();
-
   document.getElementById('ss-year').value = DB.academicYear;
   document.getElementById('ss-term-select').innerHTML = DB.terms.map(t=>`<option ${t===DB.currentTerm?'selected':''}>${t}</option>`).join('');
   document.getElementById('ss-current-label').textContent = `${DB.currentTerm} — ${DB.academicYear}`;
@@ -2788,7 +3613,7 @@ function renderSchoolSettingsPage(){
 function toggleParentLookup(){
   DB.parentLookupEnabled = document.getElementById('ss-parent-lookup-toggle').checked;
   logActivity('Changed parent lookup setting', DB.parentLookupEnabled ? 'Enabled' : 'Disabled');
-  saveDB();
+  saveAndSync();
   showToast(DB.parentLookupEnabled ? 'Parent lookup enabled' : 'Parent lookup disabled', 'success');
 }
 
@@ -2822,14 +3647,14 @@ function openLedgerModal(id){
 }
 
 /* ============== USER MANAGEMENT (Director only) ============== */
-function getUser(id){ return DB.users.find(u=>u.id===id); }
-function openUserModal(id){
+async function openUserModal(id){
   const roleSel = document.getElementById('usrm-role');
   roleSel.innerHTML = ROLES.map(r=>`<option value="${r}">${r}</option>`).join('');
   document.getElementById('usrm-id').value = id||'';
   document.getElementById('usrm-delete-btn').style.display = id ? 'inline-flex' : 'none';
   document.getElementById('usrm-pw-hint').textContent = id ? '(leave blank to keep current password)' : '';
   if(id){
+    await fetchUsersCache();
     const u = getUser(id);
     if(!u) return;
     document.getElementById('usrm-name').value = u.name;
@@ -2846,7 +3671,7 @@ function openUserModal(id){
   }
   document.getElementById('userModal').classList.add('open');
 }
-function submitUser(){
+async function submitUser(){
   const id = document.getElementById('usrm-id').value;
   const name = document.getElementById('usrm-name').value.trim();
   const role = document.getElementById('usrm-role').value;
@@ -2854,49 +3679,65 @@ function submitUser(){
   const password = document.getElementById('usrm-password').value;
   const active = document.getElementById('usrm-active').checked;
   if(!name || !username){ showToast('Enter a name and username.', 'error'); return; }
-  const clash = DB.users.find(u=>u.username.toLowerCase()===username && u.id!==id);
-  if(clash){ showToast('That username is already taken.', 'error'); return; }
+
+  const { data: clash } = await sb.from('users').select('id').ilike('username', username).maybeSingle();
+  if(clash && clash.id !== id){ showToast('That username is already taken.', 'error'); return; }
+
   if(id){
-    const u = getUser(id);
-    if(u){
-      u.name=name; u.role=role; u.username=username; u.active=active;
-      if(password) u.passwordHash = simpleHash(password);
-      if(CURRENT_USER && CURRENT_USER.id===u.id) CURRENT_USER = u;
-    }
+    const updates = { name, role, username, active };
+    if(password) updates.password_hash = await sha256Hex(password);
+    const { error } = await sb.from('users').update(updates).eq('id', id);
+    if(error){ showToast('Could not save — check your internet connection.', 'error'); return; }
+    if(CURRENT_USER && CURRENT_USER.id===id) CURRENT_USER = {...CURRENT_USER, ...updates, passwordHash: updates.password_hash || CURRENT_USER.passwordHash};
     logActivity('Updated user', `${name} (${role})`);
   } else {
     if(!password){ showToast('Set a password for the new user.', 'error'); return; }
-    const newId = 'U' + String(DB.userCounter).padStart(3,'0');
-    DB.userCounter++;
-    DB.users.push({id:newId, username, name, role, passwordHash: simpleHash(password), active, createdOn:new Date().toISOString().split('T')[0]});
+    const newId = 'U' + Date.now().toString(36).toUpperCase();
+    const { error } = await sb.from('users').insert({
+      id:newId, username, name, role, password_hash: await sha256Hex(password), active
+    });
+    if(error){ showToast('Could not create user — check your internet connection.', 'error'); return; }
     logActivity('Created user', `${name} (${role})`);
   }
-  saveDB();
+  saveAndSync();
   closeModals();
-  renderAll();
+  await renderUsersTable();
   showToast('User account saved', 'success');
 }
-function deleteUserConfirm(){
+let USERS_CACHE = [];
+async function fetchUsersCache(){
+  const { data, error } = await sb.from('users').select('*').order('created_on');
+  if(!error && data) USERS_CACHE = data.map(u=>({
+    id:u.id, username:u.username, name:u.name, role:u.role,
+    passwordHash:u.password_hash, active:u.active, createdOn:u.created_on
+  }));
+  return USERS_CACHE;
+}
+function getUser(id){ return USERS_CACHE.find(u=>u.id===id); }
+async function deleteUserConfirm(){
   const id = document.getElementById('usrm-id').value;
   if(!id) return;
   if(CURRENT_USER && CURRENT_USER.id===id){ showToast('You cannot delete the account you are signed in as.', 'error'); return; }
-  if(DB.users.filter(u=>u.role==='Director' && u.active).length<=1 && getUser(id).role==='Director'){
+  await fetchUsersCache();
+  if(USERS_CACHE.filter(u=>u.role==='Director' && u.active).length<=1 && getUser(id).role==='Director'){
     showToast('At least one active Director account must remain.', 'error'); return;
   }
   if(confirm('Delete this user account? They will no longer be able to sign in.')){
     const u = getUser(id);
-    DB.users = DB.users.filter(x=>x.id!==id);
+    const { error } = await sb.from('users').delete().eq('id', id);
+    if(error){ showToast('Could not delete — check your internet connection.', 'error'); return; }
     logActivity('Deleted user', u ? `${u.name} (${u.role})` : id);
-    saveDB();
+    saveAndSync();
     closeModals();
-    renderAll();
+    await renderUsersTable();
     showToast('User account deleted', 'success');
   }
 }
-function renderUsersTable(){
+async function renderUsersTable(){
   const tb = document.getElementById('users-table');
   if(!tb) return;
-  tb.innerHTML = DB.users.map(u=>`<tr>
+  await fetchUsersCache();
+  tb.innerHTML = USERS_CACHE.map(u=>`<tr>
     <td><b>${u.name}</b>${CURRENT_USER && CURRENT_USER.id===u.id?' <span class="tag" style="background:#E7F1E5;color:#2F6B3A;font-size:10px;">You</span>':''}</td>
     <td>${u.username}</td>
     <td><span class="cat-tag cat-academic">${u.role}</span></td>
@@ -2925,108 +3766,75 @@ function renderActivityLog(){
 }
 
 /* ============== SYNC (offline-first; inert until a server is connected) ============== */
-
-// DESIGN DECISION: internet connectivity detection is unreliable on Android when the file
-// is opened from local storage (file:// protocol). navigator.onLine returns false even with
-// working data. External fetch probes are blocked by the browser's security policy.
-//
-// The correct approach: DON'T try to detect internet when no sync server is configured.
-// The app works identically with or without internet in that mode — so the badge should
-// just say "Local Only" and never alarm the user with a false "No Internet" warning.
-// Only check connectivity when the user has actually configured a sync server, because
-// only then does internet connectivity actually matter to the app's function.
-
 function updateSyncBadge(){
   const el = document.getElementById('hdr-sync');
   if(!el) return;
-  if(_fbReady && DB.syncStatus === 'synced'){
-    el.innerHTML = '🟢 Synced';
-    el.style.color = '#2F6B3A';
-  } else if(_fbReady && DB.syncStatus === 'error'){
-    el.innerHTML = '🔴 Sync Error';
-    el.style.color = '#c0392b';
-  } else if(_fbReady){
-    el.innerHTML = '🟡 Connecting…';
-    el.style.color = '#b7770d';
-  } else if(!DB || !DB.firebaseConfig || !DB.firebaseConfig.apiKey){
-    el.innerHTML = '🟢 Local Only';
-    el.style.color = '#2F6B3A';
+  const online = navigator.onLine;
+  if(!DB.syncEndpoint){
+    el.textContent = '🟡 Local Only';
+  } else if(DB.syncStatus==='error'){
+    el.textContent = '🔴 Sync Error';
+  } else if(!online){
+    el.textContent = '🟡 Waiting for Internet';
+  } else if(DB.syncStatus==='synced'){
+    el.textContent = '🟢 Synced';
   } else {
-    el.innerHTML = '🟡 Connecting…';
-    el.style.color = '#b7770d';
+    el.textContent = '🟡 Waiting for Internet';
   }
 }
-
 function renderSyncStatusDetail(){
   const el = document.getElementById('sync-status-detail');
   if(!el) return;
-  const cfgEl = document.getElementById('sync-endpoint-input');
-  if(cfgEl) cfgEl.value = DB.syncEndpoint || '';
+  document.getElementById('sync-endpoint-input').value = DB.syncEndpoint || '';
   updateSyncBadge();
-  const hasConfig = DB.firebaseConfig && DB.firebaseConfig.apiKey;
-  const statusText = _fbReady && DB.syncStatus==='synced'
-    ? `<b style="color:#2F6B3A;">🟢 Connected — all devices sharing the same data in real time</b>`
-    : _fbReady && DB.syncStatus==='error'
-      ? `<b style="color:#c0392b;">🔴 Connection error — check your Firebase rules or internet</b>`
-      : _fbReady
-        ? `<b style="color:#b7770d;">🟡 Connecting to Firebase…</b>`
-        : hasConfig
-          ? `<b style="color:#b7770d;">🟡 Firebase configured but not yet connected</b>`
-          : `<b>Not configured — data stays on this device only</b>`;
   el.innerHTML = `
-    <div class="kpi-mini"><span>Database sync</span>${statusText}</div>
-    <div class="kpi-mini"><span>Local backup</span><b>✅ Always saved on this device too — works offline</b></div>
+    <div class="kpi-mini"><span>Status</span><b>${document.getElementById('hdr-sync').textContent}</b></div>
+    <div class="kpi-mini"><span>Sync server</span><b>${DB.syncEndpoint || 'Not connected — offline only'}</b></div>
     <div class="kpi-mini"><span>Last synced</span><b>${DB.lastSyncedOn ? new Date(DB.lastSyncedOn).toLocaleString() : 'Never'}</b></div>
   `;
 }
-
-function saveFirebaseConfig(){
-  const raw = document.getElementById('fb-config-input').value.trim();
-  if(!raw){ showToast('Paste your Firebase config first.', 'error'); return; }
-  let cfg;
-  try{
-    // Accept either a plain object literal or JSON
-    cfg = (new Function('return (' + raw + ')'))();
-    if(!cfg.apiKey || !cfg.projectId) throw new Error('Missing fields');
-  }catch(e){
-    showToast('Invalid config — paste the exact config object from Firebase.', 'error');
-    return;
-  }
-  DB.firebaseConfig = cfg;
-  saveDB();
-  const ok = initFirebase(cfg);
-  if(ok){
-    showToast('🟢 Firebase connected! Data will now sync across all devices.', 'success');
-  } else {
-    showToast('Could not connect — double-check the config and Firebase rules.', 'error');
-  }
-  renderSchoolSettingsPage();
-}
-
-function clearFirebaseConfig(){
-  if(!confirm('Disconnect Firebase? This device will keep its local copy but will stop syncing with others.')) return;
-  if(_fbUnsub){ _fbUnsub(); _fbUnsub = null; }
-  _fbApp = null; _fbDB = null; _fbReady = false;
-  DB.firebaseConfig = null;
-  DB.syncStatus = 'local-only';
-  saveDB();
-  updateSyncBadge();
-  renderSchoolSettingsPage();
-  showToast('Firebase disconnected — running locally.', 'success');
-}
-
 function saveSyncEndpoint(){
-  const val = document.getElementById('sync-endpoint-input') ? document.getElementById('sync-endpoint-input').value.trim() : '';
+  const val = document.getElementById('sync-endpoint-input').value.trim();
   DB.syncEndpoint = val;
-  saveDB();
+  DB.syncStatus = val ? 'pending' : 'local-only';
+  saveAndSync();
+  logActivity('Updated sync settings', val ? `Endpoint set to ${val}` : 'Sync disconnected — back to local-only');
   renderSchoolSettingsPage();
+  showToast(val ? 'Sync server saved. Click "Sync Now" to connect.' : 'Sync disconnected — running fully offline.', 'success');
 }
-
 async function attemptSync(){
-  if(!_fbReady){ showToast('Connect Firebase first.', 'error'); return; }
-  showToast('Pushing latest data to Firebase…', 'success');
-  saveDB();
+  if(!DB.syncEndpoint){ showToast('Set a sync server address first.', 'error'); return; }
+  if(!navigator.onLine){ DB.syncStatus='pending'; saveAndSync(); renderSchoolSettingsPage(); showToast('No internet connection right now — will stay queued locally.', 'error'); return; }
+  showToast('Attempting to sync...', 'success');
+  try{
+    // Expected contract for a real backend: POST full local snapshot, server merges & returns the merged state.
+    const res = await fetch(DB.syncEndpoint.replace(/\/$/,'') + '/sync', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({device: navigator.userAgent, lastSyncedOn: DB.lastSyncedOn, data: DB})
+    });
+    if(!res.ok) throw new Error('Server responded with ' + res.status);
+    const merged = await res.json();
+    if(merged && merged.data){
+      DB = merged.data;
+      ensureDataShape();
+    }
+    DB.syncStatus = 'synced';
+    DB.lastSyncedOn = new Date().toISOString();
+    saveAndSync();
+    logActivity('Sync completed', `Synced with ${DB.syncEndpoint}`);
+    renderAll();
+    showToast('Synced successfully.', 'success');
+  }catch(e){
+    DB.syncStatus = 'error';
+    saveAndSync();
+    logActivity('Sync failed', e.message);
+    renderSchoolSettingsPage();
+    showToast('Sync failed — no server reachable at that address. Staying in offline mode.', 'error');
+  }
 }
+window.addEventListener('online', updateSyncBadge);
+window.addEventListener('offline', updateSyncBadge);
 
 /* ============== AUTOMATIC LOCAL DAILY BACKUP (separate from manual .json/.csv export) ============== */
 const AUTO_BACKUP_KEY = 'kabaga_auto_backups_v1';
@@ -3062,7 +3870,7 @@ function restoreAutoBackup(date){
   try{
     DB = JSON.parse(b.data);
     ensureDataShape();
-    saveDB();
+    saveAndSync();
     logActivity('Restored local backup', `Rolled back to ${date}`);
     renderAll();
     showToast(`Restored to ${date}.`, 'success');
@@ -3091,10 +3899,7 @@ function populateExpenditureGroupOptions(){
   }
 }
 function populateExpenditureCategoryOptions(){
-  const group = document.getElementById('exm-group').value;
-  const catSel = document.getElementById('exm-category');
-  const cats = DB.expenditureGroups[group] || [];
-  catSel.innerHTML = cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+  document.getElementById('exm-category').value = document.getElementById('exm-group').value;
 }
 function openExpenditureModal(id){
   populateExpenditureGroupOptions();
@@ -3104,15 +3909,14 @@ function openExpenditureModal(id){
     const e = DB.expenditures.find(x=>x.id===id);
     if(!e) return;
     document.getElementById('exm-date').value = e.date;
-    document.getElementById('exm-group').value = e.group;
-    populateExpenditureCategoryOptions();
-    document.getElementById('exm-category').value = e.category;
+    document.getElementById('exm-group').value = EXPENSE_CATEGORIES.includes(e.category) ? e.category : EXPENSE_CATEGORIES[EXPENSE_CATEGORIES.length-1];
+    document.getElementById('exm-category').value = document.getElementById('exm-group').value;
     document.getElementById('exm-amount').value = e.amount;
     document.getElementById('exm-description').value = e.description;
     document.getElementById('exm-approvedby').value = e.approvedBy;
   } else {
     document.getElementById('exm-date').value = new Date().toISOString().split('T')[0];
-    populateExpenditureCategoryOptions();
+    document.getElementById('exm-category').value = document.getElementById('exm-group').value;
     document.getElementById('exm-amount').value = '';
     document.getElementById('exm-description').value = '';
     document.getElementById('exm-approvedby').value = '';
@@ -3138,7 +3942,7 @@ function submitExpenditure(){
     DB.expenditures.unshift({id:newId, date, group, category, description, amount, approvedBy, term:DB.term});
   }
   logActivity('Recorded expenditure', `${category} — ${fmtUGX(amount)} (${description||'no description'})`);
-  saveDB();
+  saveAndSync();
   closeModals();
   renderAll();
   showToast('Expenditure record saved', 'success');
@@ -3150,7 +3954,7 @@ function deleteExpenditureConfirm(){
     const removed = DB.expenditures.find(x=>x.id===id);
     DB.expenditures = DB.expenditures.filter(x=>x.id!==id);
     logActivity('Deleted expenditure', removed ? `${removed.category} — ${fmtUGX(removed.amount)}` : id);
-    saveDB();
+    saveAndSync();
     closeModals();
     renderAll();
     showToast('Expenditure record deleted', 'success');
@@ -3254,7 +4058,7 @@ function submitStaff(){
     DB.staff.push({id:newId, name, type, role, salary, housing, preps});
   }
   logActivity('Saved staff member', `${name} (${type}) — monthly pay ${fmtUGX(salary+housing+preps)}`);
-  saveDB();
+  saveAndSync();
   closeModals();
   renderAll();
   showToast('Staff member saved', 'success');
@@ -3266,7 +4070,7 @@ function deleteStaffConfirm(){
     const removedStaff = getStaffMember(id);
     DB.staff = DB.staff.filter(s=>s.id!==id);
     logActivity('Removed staff member', removedStaff ? removedStaff.name : id);
-    saveDB();
+    saveAndSync();
     closeModals();
     renderAll();
     showToast('Staff member removed', 'success');
@@ -3388,7 +4192,7 @@ function submitPostSalaries(){
   });
   DB.payrollRuns.push({month:monthLabel, date, approvedBy, staffCount:selectedIds.length, totalAmount});
   logActivity('Posted salaries', `${monthLabel}: ${fmtUGX(totalAmount)} for ${selectedIds.length} staff, approved by ${approvedBy}`);
-  saveDB();
+  saveAndSync();
   closeModals();
   renderAll();
   showToast(`Posted ${fmtUGX(totalAmount)} in salaries for ${monthLabel}`, 'success');
@@ -3429,7 +4233,7 @@ function submitDirectorContribution(){
     DB.directorContributions.unshift({id:newId, date, director, purpose, amount, term:DB.term});
   }
   logActivity('Recorded director contribution', `${director}: ${fmtUGX(amount)} for ${purpose||'general operations'}`);
-  saveDB();
+  saveAndSync();
   closeModals();
   renderAll();
   showToast('Director contribution saved', 'success');
@@ -3441,7 +4245,7 @@ function deleteDirectorConfirm(){
     const removedDc = DB.directorContributions.find(x=>x.id===id);
     DB.directorContributions = DB.directorContributions.filter(x=>x.id!==id);
     logActivity('Deleted director contribution', removedDc ? fmtUGX(removedDc.amount) : id);
-    saveDB();
+    saveAndSync();
     closeModals();
     renderAll();
     showToast('Contribution record deleted', 'success');
@@ -3515,7 +4319,7 @@ function submitUniformItem(){
     DB.uniformInventory.push({id:newId, name, section, gender, qty, price});
   }
   logActivity('Saved uniform inventory item', `${name} — qty ${qty}, ${fmtUGX(price)}`);
-  saveDB();
+  saveAndSync();
   closeModals();
   renderAll();
   showToast('Inventory item saved', 'success');
@@ -3527,7 +4331,7 @@ function deleteUniformItemConfirm(){
     const removedItem = getUniformItem(id);
     DB.uniformInventory = DB.uniformInventory.filter(x=>x.id!==id);
     logActivity('Deleted uniform inventory item', removedItem ? removedItem.name : id);
-    saveDB();
+    saveAndSync();
     closeModals();
     renderAll();
     showToast('Inventory item deleted', 'success');
@@ -3598,7 +4402,7 @@ function submitUniformSale(){
   DB.uniformSales.unshift({id:newId, date, pupil:pupil||'Walk-in', itemId, itemName:it.name, qty, amount});
   it.qty -= qty;
   logActivity('Recorded uniform sale', `${qty} x ${it.name} to ${pupil||'Walk-in'} — ${fmtUGX(amount)}`);
-  saveDB();
+  saveAndSync();
   closeModals();
   renderAll();
   showToast('Uniform sale recorded — stock updated', 'success');
@@ -3684,82 +4488,40 @@ function renderClassReport(){
   const cls = document.getElementById('report-cls').value;
   const area = document.getElementById('report-area');
   if(cls==='all'){
-    // Compute grand totals first
-    let grandExp=0, grandCol=0, grandArr=0, grandPupils=0;
-    const classData = ALL_CLASSES.map(c=>{
-      const pupils = DB.pupils.filter(p=>p.cls===c && p.status!=='Left' && p.status!=='Graduated');
-      let exp=0,col=0,arr=0;
-      pupils.forEach(p=>{
-        exp += currentTermFee(p);
-        col += paidTotals(p.id).tuition + paidTotals(p.id).lunch + paidTotals(p.id).boarding;
-        arr += Math.max((p.previousArrears||0) - paidTotals(p.id).arrears, 0);
-      });
-      grandExp+=exp; grandCol+=col; grandArr+=arr; grandPupils+=pupils.length;
-      return {c, pupils, exp, col, arr};
-    });
-    const grandPct = grandExp>0 ? Math.round(grandCol/grandExp*100) : 0;
-    const grandOut = grandExp - grandCol;
-
-    // Summary metrics at top
-    let html = `
-      <div class="metric-row" style="margin-bottom:10px;">
-        <div class="metric"><div class="metric-label">Total Pupils</div><div class="metric-value">${grandPupils}</div></div>
-        <div class="metric"><div class="metric-label">Total Expected</div><div class="metric-value" style="font-size:16px;">${fmtUGX(grandExp)}</div></div>
-        <div class="metric m-green"><div class="metric-label">Total Collected</div><div class="metric-value" style="font-size:16px;">${fmtUGX(grandCol)}</div></div>
-        <div class="metric m-amber"><div class="metric-label">Total Outstanding</div><div class="metric-value" style="font-size:16px;">${fmtUGX(grandOut)}</div></div>
-        <div class="metric ${grandPct>=80?'m-green':grandPct>=50?'m-amber':'m-red'}"><div class="metric-label">Overall % Collected</div><div class="metric-value">${grandPct}%</div></div>
-      </div>
-      <div style="background:#F0F4FF;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;">
-        <b>Collection Progress:</b>
-        <div style="margin-top:6px;background:#dde3f0;border-radius:6px;height:16px;overflow:hidden;">
-          <div style="height:100%;width:${grandPct}%;background:${grandPct>=80?'#2F6B3A':grandPct>=50?'#C98A2E':'#A33345'};border-radius:6px;transition:width 0.4s;"></div>
-        </div>
-        <div style="margin-top:4px;color:var(--ink-soft);">${fmtUGX(grandCol)} collected of ${fmtUGX(grandExp)} — ${fmtUGX(grandOut)} still outstanding · Total arrears due: <span style="color:#A33345;font-weight:700;">${fmtUGX(grandArr)}</span></div>
-      </div>`;
-
-    html += '<div class="card" style="padding:0;"><div class="table-wrap"><table><thead><tr><th>Class</th><th>Section</th><th class="right">Pupils</th><th class="right">Expected</th><th class="right">Collected</th><th class="right">Arrears Due</th><th class="right">Outstanding</th><th class="right">% Collected</th></tr></thead><tbody>';
-
-    classData.forEach(({c, pupils, exp, col, arr})=>{
-      if(pupils.length===0) return;
+    let html = '<div class="card"><div class="card-title">Summary — All Classes</div><div class="table-wrap"><table><thead><tr><th>Class</th><th>Section</th><th class="right">Pupils</th><th class="right">Expected</th><th class="right">Collected</th><th class="right">Arrears Due</th><th class="right">Outstanding</th><th class="right">% Collected</th></tr></thead><tbody>';
+    ALL_CLASSES.forEach(c=>{
+      const pupilsInClass = DB.pupils.filter(p=>p.cls===c);
       const isN = NURSERY.includes(c);
-      const pct = exp>0 ? Math.round(col/exp*100) : 0;
-      const pctColor = pct>=80?'#2F6B3A':pct>=50?'#C98A2E':'#A33345';
+      let exp=0,col=0,arr=0;
+      pupilsInClass.forEach(p=>{
+        exp+=currentTermFee(p);
+        col+=(paidTotals(p.id).tuition+paidTotals(p.id).lunch+paidTotals(p.id).boarding);
+        arr+=Math.max((p.previousArrears||0)-paidTotals(p.id).arrears,0);
+      });
+      const pct = exp>0?Math.round(col/exp*100):0;
       html += `<tr>
         <td><b>${c}</b></td>
         <td><span class="tag ${isN?'tag-n':'tag-p'}">${isN?'Nursery':'Primary'}</span></td>
-        <td class="right">${pupils.length}</td>
+        <td class="right">${pupilsInClass.length}</td>
         <td class="right">${fmtUGX(exp)}</td>
-        <td class="right" style="color:#2F6B3A;font-weight:600;">${fmtUGX(col)}</td>
-        <td class="right" style="color:#A33345;">${arr>0?fmtUGX(arr):'—'}</td>
-        <td class="right" style="color:#A33345;">${fmtUGX(Math.max(exp-col,0))}</td>
-        <td class="right"><b style="color:${pctColor};">${pct}%</b></td>
+        <td class="right" style="color:#2F6B3A;">${fmtUGX(col)}</td>
+        <td class="right" style="color:#A33345;">${fmtUGX(arr)}</td>
+        <td class="right" style="color:#A33345;">${fmtUGX(exp-col)}</td>
+        <td class="right"><b>${pct}%</b></td>
       </tr>`;
     });
-
-    // Grand totals row
-    html += `<tr style="border-top:2px solid #1B2C5E;background:#F0F4FF;">
-      <td colspan="2"><b>TOTAL — ALL CLASSES</b></td>
-      <td class="right"><b>${grandPupils}</b></td>
-      <td class="right"><b>${fmtUGX(grandExp)}</b></td>
-      <td class="right" style="color:#2F6B3A;font-weight:700;">${fmtUGX(grandCol)}</td>
-      <td class="right" style="color:#A33345;font-weight:700;">${fmtUGX(grandArr)}</td>
-      <td class="right" style="color:#A33345;font-weight:700;">${fmtUGX(grandOut)}</td>
-      <td class="right"><b style="color:${grandPct>=80?'#2F6B3A':grandPct>=50?'#C98A2E':'#A33345'};font-size:15px;">${grandPct}%</b></td>
-    </tr>`;
-
     html += '</tbody></table></div></div>';
     area.innerHTML = html;
-
   } else {
-    const pupilsInClass = DB.pupils.filter(p=>p.cls===cls && p.status!=='Left' && p.status!=='Graduated');
+    const pupilsInClass = DB.pupils.filter(p=>p.cls===cls);
     const isN = NURSERY.includes(cls);
-    let exp=0, col=0, arr=0;
+    let exp=0,col=0,arr=0;
     let html = `<div class="card"><div class="card-title">${cls} <span class="tag ${isN?'tag-n':'tag-p'}" style="margin-left:6px;">${isN?'Nursery':'Primary'}</span> <small>${pupilsInClass.length} pupils</small></div>`;
     html += '<div class="table-wrap"><table><thead><tr><th>Pupil</th><th>Parent/Guardian</th><th>Contact</th><th class="right">Fee Payable</th><th class="right">Paid</th><th class="right">Arrears</th><th class="right">Balance</th><th>Status</th></tr></thead><tbody>';
     pupilsInClass.forEach(p=>{
       const tot = currentTermFee(p);
       const paid = paidTotals(p.id).tuition + paidTotals(p.id).lunch + paidTotals(p.id).boarding;
-      const arrBal = Math.max((p.previousArrears||0) - paidTotals(p.id).arrears, 0);
+      const arrBal = Math.max((p.previousArrears||0)-paidTotals(p.id).arrears,0);
       exp+=tot; col+=paid; arr+=arrBal;
       const bal = balanceDue(p);
       html += `<tr class="${isDefaulter(p)?'defaulter-row':''}">
@@ -3776,44 +4538,13 @@ function renderClassReport(){
     if(pupilsInClass.length===0){
       html += '<tr><td colspan="8"><div class="empty">No pupils in this class yet.</div></td></tr>';
     }
-    // Class totals row
-    const pct = exp>0 ? Math.round(col/exp*100) : 0;
-    const pctColor = pct>=80?'#2F6B3A':pct>=50?'#C98A2E':'#A33345';
-    html += `<tr style="border-top:2px solid #1B2C5E;background:#F0F4FF;">
-      <td colspan="3"><b>CLASS TOTAL</b></td>
-      <td class="right"><b>${fmtUGX(exp)}</b></td>
-      <td class="right" style="color:#2F6B3A;font-weight:700;">${fmtUGX(col)}</td>
-      <td class="right" style="color:#A33345;font-weight:700;">${arr>0?fmtUGX(arr):'—'}</td>
-      <td class="right" style="color:#A33345;font-weight:700;">${fmtUGX(Math.max(exp-col,0))}</td>
-      <td><b style="color:${pctColor};">${pct}%</b></td>
-    </tr>`;
     html += '</tbody></table></div>';
-
-    // Summary metric cards below the table
-    html += `<div style="margin-top:14px;display:flex;gap:14px;flex-wrap:wrap;">
-      <div style="flex:1;min-width:120px;background:#F7F5F0;border-radius:8px;padding:10px 14px;">
-        <div class="metric-label">Expected</div><div class="metric-value" style="font-size:18px;">${fmtUGX(exp)}</div>
-      </div>
-      <div style="flex:1;min-width:120px;background:#E7F1E5;border-radius:8px;padding:10px 14px;">
-        <div class="metric-label">Collected</div><div class="metric-value" style="font-size:18px;color:#2F6B3A;">${fmtUGX(col)}</div>
-      </div>
-      <div style="flex:1;min-width:120px;background:#FBE7E5;border-radius:8px;padding:10px 14px;">
-        <div class="metric-label">Outstanding</div><div class="metric-value" style="font-size:18px;color:#A33345;">${fmtUGX(Math.max(exp-col,0))}</div>
-      </div>
-      <div style="flex:1;min-width:120px;background:${pct>=80?'#E7F1E5':pct>=50?'#FBEFD9':'#FBE7E5'};border-radius:8px;padding:10px 14px;">
-        <div class="metric-label">% Collected</div><div class="metric-value" style="font-size:18px;color:${pctColor};">${pct}%</div>
-      </div>
-      <div style="flex:1;min-width:120px;background:#FBE7E5;border-radius:8px;padding:10px 14px;">
-        <div class="metric-label">Arrears Due</div><div class="metric-value" style="font-size:18px;color:#A33345;">${fmtUGX(arr)}</div>
-      </div>
-    </div>
-    <div style="margin-top:10px;background:#F0F4FF;border-radius:8px;padding:8px 14px;">
-      <div style="background:#dde3f0;border-radius:6px;height:14px;overflow:hidden;">
-        <div style="height:100%;width:${pct}%;background:${pctColor};border-radius:6px;"></div>
-      </div>
-      <div style="font-size:12px;color:var(--ink-soft);margin-top:4px;">${pct}% of ${cls} fees collected this term</div>
-    </div>
-    </div>`;
+    html += `<div style="margin-top:14px;display:flex;gap:24px;flex-wrap:wrap;">
+      <div><div class="metric-label">Class total fees payable</div><div class="metric-value" style="font-size:18px;">${fmtUGX(exp)}</div></div>
+      <div><div class="metric-label">Class total collected</div><div class="metric-value" style="font-size:18px;color:#2F6B3A;">${fmtUGX(col)}</div></div>
+      <div><div class="metric-label">Class arrears due</div><div class="metric-value" style="font-size:18px;color:#A33345;">${fmtUGX(arr)}</div></div>
+      <div><div class="metric-label">Class outstanding</div><div class="metric-value" style="font-size:18px;color:#A33345;">${fmtUGX(exp-col)}</div></div>
+    </div></div>`;
     area.innerHTML = html;
   }
 }
@@ -3893,7 +4624,7 @@ function downloadBackup(){
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   logActivity('Downloaded JSON backup', `kabaga-fees-backup-${stamp}.json`);
-  saveDB();
+  saveAndSync();
   showToast('Backup file downloaded', 'success');
 }
 
@@ -3918,7 +4649,7 @@ function downloadReadableBackup(){
     rows.push([
       p.id, p.name, p.cls, p.status||'Active', NURSERY.includes(p.cls)?'Nursery':'Primary', isBoarder(p)?'Boarding':'Day',
       p.parent||'', p.relation||'', p.phone||'', p.phone2||'', p.email||'', p.address||'',
-      DB.fees[p.cls]||0, tuitionPortion(p), p.bursaryPct||0, DB.lunchFee, boardingPortion(p),
+      DB.fees[p.cls]||0, tuitionPortion(p), p.bursaryPct||0, lunchPortion(p), boardingPortion(p),
       paid.tuition, paid.lunch, paid.boarding, p.previousArrears||0, paid.arrears,
       currentTermFee(p), paid.total, balanceDue(p), getStatus(p)
     ]);
@@ -4046,7 +4777,7 @@ function restoreBackup(){
         DB = data;
         ensureDataShape();
         logActivity('Restored backup file', file.name);
-        saveDB();
+        saveAndSync();
         document.getElementById('hdr-term').textContent = DB.term;
         renderAll();
         showToast('Data restored successfully', 'success');
@@ -4064,7 +4795,7 @@ function resetAllData(){
       const who = CURRENT_USER ? CURRENT_USER.name : 'Unknown';
       DB = defaultData();
       logActivity('Erased all data', `Reset to factory defaults by ${who}`);
-      saveDB();
+      saveAndSync();
       renderAll();
       showToast('All data has been reset', 'success');
     }
@@ -4115,21 +4846,57 @@ function logActivity(action, details){
   if(DB.activityLog.length>2000) DB.activityLog.length = 2000; // cap growth
 }
 
-function checkGatePassword(){
+const USERS_OFFLINE_CACHE_KEY = 'kabaga_users_offline_cache_v1';
+function cacheUsersOffline(users){
+  try{ localStorage.setItem(USERS_OFFLINE_CACHE_KEY, JSON.stringify(users)); }catch(e){}
+}
+function getOfflineUsersCache(){
+  try{ return JSON.parse(localStorage.getItem(USERS_OFFLINE_CACHE_KEY) || '[]'); }catch(e){ return []; }
+}
+
+async function checkGatePassword(){
   const uInput = document.getElementById('gate-username');
   const pInput = document.getElementById('gate-password');
   const errEl = document.getElementById('gate-error');
   const username = uInput.value.trim().toLowerCase();
-  const user = DB.users.find(u=>u.username.toLowerCase()===username && u.active);
-  if(user && user.passwordHash === simpleHash(pInput.value)){
-    CURRENT_USER = user;
+  const pwHash = await sha256Hex(pInput.value);
+
+  errEl.textContent = 'Checking…';
+  let user, error;
+  try{
+    const res = await sb.from('users').select('*').ilike('username', username).eq('active', true).maybeSingle();
+    user = res.data; error = res.error;
+    if(!error){
+      // Refresh the offline cache with the latest full user list whenever we're online.
+      const { data: allUsers } = await sb.from('users').select('*');
+      if(allUsers) cacheUsersOffline(allUsers);
+    }
+  }catch(e){ error = e; }
+
+  if(error){
+    // No internet (or server unreachable) — fall back to the last-known users list.
+    const offlineUsers = getOfflineUsersCache();
+    user = offlineUsers.find(u=>u.username.toLowerCase()===username && u.active);
+    if(!user){
+      errEl.textContent = 'No internet connection, and no offline record for this user yet. Connect once to enable offline login.';
+      return;
+    }
+  }
+
+  if(user && user.password_hash === pwHash){
+    CURRENT_USER = {
+      id: user.id, username: user.username, name: user.name,
+      role: user.role, passwordHash: user.password_hash, active: user.active
+    };
     sessionStorage.setItem(SESSION_KEY, user.id);
     document.body.classList.remove('locked');
+    document.getElementById('passwordGate').style.display = 'none';
     pInput.value=''; uInput.value=''; errEl.textContent='';
     logActivity('Login', `${user.name} signed in`);
-    saveDB();
+    saveAndSync();
     applyRolePermissions();
     renderAll();
+    startLivePoller();
   } else {
     errEl.textContent = 'Incorrect username or password.';
     pInput.classList.remove('shake'); void pInput.offsetWidth; pInput.classList.add('shake');
@@ -4180,10 +4947,11 @@ function runParentLookup(){
 
 function logoutUser(){
   if(CURRENT_USER) logActivity('Logout', `${CURRENT_USER.name} signed out`);
-  saveDB();
+  saveAndSync();
   sessionStorage.removeItem(SESSION_KEY);
   CURRENT_USER = null;
   document.body.classList.add('locked');
+  document.getElementById('passwordGate').style.display = 'flex';
   setTimeout(()=>document.getElementById('gate-username').focus(), 50);
 }
 
@@ -4233,25 +5001,80 @@ function applyRolePermissions(){
   });
 }
 
-window.addEventListener('DOMContentLoaded', function(){
-  loadDB();
+window.addEventListener('DOMContentLoaded', async function(){
+  // Upfront check: confirm this browser/file actually allows persistent storage,
+  // before anything else happens.
+  try{
+    localStorage.setItem('__storage_test__','1');
+    if(localStorage.getItem('__storage_test__')!=='1') throw new Error('readback failed');
+    localStorage.removeItem('__storage_test__');
+  }catch(e){
+    showStorageWarningBanner();
+  }
+
+  await loadDB();
   document.getElementById('hdr-term').textContent = DB.term;
   renderAll();
   updateBackupStatus();
-  updateSyncBadge();
   runDailyAutoBackup();
+  if(localStorage.getItem(PENDING_SYNC_KEY) && navigator.onLine) syncToServer();
+
   const savedUserId = sessionStorage.getItem(SESSION_KEY);
-  const savedUser = savedUserId ? DB.users.find(u=>u.id===savedUserId && u.active) : null;
+  let savedUser = null;
+  if(savedUserId){
+    try{
+      const { data, error } = await sb.from('users').select('*').eq('id', savedUserId).eq('active', true).maybeSingle();
+      if(error) throw error;
+      if(data) savedUser = { id:data.id, username:data.username, name:data.name, role:data.role, passwordHash:data.password_hash, active:data.active };
+    }catch(e){
+      const offlineUsers = getOfflineUsersCache();
+      const u = offlineUsers.find(x=>x.id===savedUserId && x.active);
+      if(u) savedUser = { id:u.id, username:u.username, name:u.name, role:u.role, passwordHash:u.password_hash, active:u.active };
+    }
+  }
   if(savedUser){
     CURRENT_USER = savedUser;
     document.body.classList.remove('locked');
+    document.getElementById('passwordGate').style.display = 'none';
     applyRolePermissions();
     renderAll();
+    startLivePoller();
   } else {
     document.body.classList.add('locked');
+    document.getElementById('passwordGate').style.display = 'flex';
     setTimeout(()=>document.getElementById('gate-username').focus(), 50);
   }
 });
+
+// Sets known, working passwords for the 5 default accounts the FIRST time
+// this file is opened. After that, it never touches passwords again, so any
+// changes you make inside Settings → Users will stick permanently.
+function forceSetPasswords(){
+  if(DB.defaultPasswordsApplied) return; // already done once — don't touch passwords again
+  const resetList = [
+    {username:'director',    name:'School Director',      role:'Director',           password:'Kabaga@2026!'},
+    {username:'bursar',      name:'School Bursar',        role:'Bursar',              password:'Bursar@2026!'},
+    {username:'headteacher', name:'Head Teacher',         role:'Head Teacher',        password:'Head@2026!'},
+    {username:'accounts',    name:'Accounts Assistant',   role:'Accounts Assistant', password:'Accounts@2026!'},
+    {username:'teacher',     name:'Class Teacher',        role:'Teacher',             password:'Teacher@2026!'}
+  ];
+  if(!DB.users) DB.users = [];
+  resetList.forEach((def, idx)=>{
+    let u = DB.users.find(x=>x.username.toLowerCase()===def.username);
+    if(u){
+      u.passwordHash = simpleHash(def.password);
+      u.active = true;
+    } else {
+      DB.users.push({
+        id:'U00'+(idx+1), username:def.username, name:def.name, role:def.role,
+        passwordHash: simpleHash(def.password), active:true,
+        createdOn:new Date().toISOString().split('T')[0]
+      });
+    }
+  });
+  DB.defaultPasswordsApplied = true;
+  saveAndSync();
+}
 
 document.querySelectorAll('.modal-overlay').forEach(ov=>{
   ov.addEventListener('click', function(e){ if(e.target===ov) closeModals(); });

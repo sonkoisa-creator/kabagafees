@@ -1818,7 +1818,10 @@ async function loadDB(){
 }
 
 const PENDING_SYNC_KEY = 'kabaga_pending_sync_v1';
-let _lastServerUpdatedAt = null; // tracks what timestamp we last got from server
+let _lastServerUpdatedAt = null;
+let syncInProgress = false;
+let syncRetryTimer = null;
+let livePoller = null;
 
 function saveDB(){
   // Save locally always.
@@ -1937,8 +1940,6 @@ setInterval(()=>{
 // Simple, reliable approach: poll Supabase every 3 seconds.
 // No hash checks, no timestamp guards, no complex logic — just always fetch
 // and apply if we're not currently in the middle of saving our own data.
-let livePoller = null;
-
 function startLivePoller(){
   if(livePoller) clearInterval(livePoller);
   livePoller = setInterval(fetchAndApplyRemote, 3000);

@@ -2057,9 +2057,17 @@ function isDefaulter(p){ return (p.previousArrears||0) - paidTotals(p.id).arrear
 
 function getStatus(pupil){
   const bal = balanceDue(pupil);
-  if(bal<=0) return 'paid';
-  const pays = getPaymentsForPupil(pupil.id);
   const paidTotal = paidTotals(pupil.id).total;
+  const fee = currentTermFee(pupil);
+  const arrears = pupil.previousArrears||0;
+
+  // Only show "paid" if:
+  // 1. Balance is zero AND they've actually made a payment this term, OR
+  // 2. Balance is zero AND fee is genuinely 0 (e.g. staff child) AND no arrears
+  if(bal<=0 && (paidTotal>0 || (fee===0 && arrears===0))) return 'paid';
+
+  // If fee is 0 but there are unpaid arrears → still show partial/overdue
+  const pays = getPaymentsForPupil(pupil.id);
   const lastDate = pays.length ? pays.map(p=>p.date).sort().reverse()[0] : null;
   const days = lastDate ? Math.floor((new Date()-new Date(lastDate))/86400000) : 9999;
   if(paidTotal===0 && days>30) return 'overdue';

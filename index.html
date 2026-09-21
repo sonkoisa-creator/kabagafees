@@ -2056,17 +2056,17 @@ function balanceDue(p){
 function isDefaulter(p){ return (p.previousArrears||0) - paidTotals(p.id).arrears > 0; }
 
 function getStatus(pupil){
+  // Pupils who have left or are deferred get their own status — never shown as paid
+  if(pupil.enrollmentStatus === 'left') return 'left';
+  if(pupil.enrollmentStatus === 'deferred') return 'deferred';
+
   const bal = balanceDue(pupil);
   const paidTotal = paidTotals(pupil.id).total;
   const fee = currentTermFee(pupil);
   const arrears = pupil.previousArrears||0;
 
-  // Only show "paid" if:
-  // 1. Balance is zero AND they've actually made a payment this term, OR
-  // 2. Balance is zero AND fee is genuinely 0 (e.g. staff child) AND no arrears
   if(bal<=0 && (paidTotal>0 || (fee===0 && arrears===0))) return 'paid';
 
-  // If fee is 0 but there are unpaid arrears → still show partial/overdue
   const pays = getPaymentsForPupil(pupil.id);
   const lastDate = pays.length ? pays.map(p=>p.date).sort().reverse()[0] : null;
   const days = lastDate ? Math.floor((new Date()-new Date(lastDate))/86400000) : 9999;
@@ -2075,8 +2075,9 @@ function getStatus(pupil){
   return 'unpaid';
 }
 function statusBadge(s){
-  const labels={paid:'Paid',partial:'Partial',unpaid:'Unpaid',overdue:'Overdue'};
-  return `<span class="badge badge-${s}">${labels[s]}</span>`;
+  const labels={paid:'Paid',partial:'Partial',unpaid:'Unpaid',overdue:'Overdue',left:'Left School',deferred:'Deferred'};
+  const style={left:'background:#F1EEE5;color:#888;',deferred:'background:#FFF3E0;color:#C98A2E;'};
+  return `<span class="badge badge-${s==='left'||s==='deferred'?'ghost':s}" style="${style[s]||''}">${labels[s]||s}</span>`;
 }
 function initials(n){ return (n||'?').split(' ').map(x=>x[0]).join('').slice(0,2).toUpperCase(); }
 function fmtUGX(n){
@@ -2240,11 +2241,12 @@ function renderOverview(){
   }
 
   const counts={paid:0,partial:0,unpaid:0,overdue:0};
-  DB.pupils.forEach(p=>counts[getStatus(p)]++);
+  const activePupilsForCount = DB.pupils.filter(p=>isActive(p));
+  activePupilsForCount.forEach(p=>{ const s=getStatus(p); if(counts[s]!==undefined) counts[s]++; });
   const ss = document.getElementById('status-summary');
   const colors = {paid:'#2F6B3A',partial:'#C98A2E',unpaid:'#22568C',overdue:'#A33345'};
   const labels = {paid:'Fully paid',partial:'Partial payment',unpaid:'Not yet paid',overdue:'Overdue (30+ days)'};
-  const total = DB.pupils.length || 1;
+  const total = activePupilsForCount.length || 1;
   ss.innerHTML = Object.keys(counts).map(k=>{
     const pct = Math.round(counts[k]/total*100);
     return `<div class="class-row">

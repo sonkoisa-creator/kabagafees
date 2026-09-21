@@ -1021,9 +1021,13 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate):not(#parentResultsGate
   <!-- TERM OVERVIEW PAGE -->
   <div class="page" id="page-termoverview">
     <div class="toolbar no-print">
+      <select id="tov-view" onchange="renderTermOverview()" style="font-weight:700;">
+        <option value="comparison">📊 All Terms Comparison</option>
+        <option value="single">📋 Single Term Detail</option>
+      </select>
       <select id="tov-term" onchange="renderTermOverview()"></select>
       <select id="tov-year" onchange="renderTermOverview()"></select>
-      <button class="btn btn-navy no-print" onclick="window.print()">🖨️ Print Overview</button>
+      <button class="btn btn-navy no-print" onclick="window.print()">🖨️ Print</button>
     </div>
     <div id="termoverview-area"></div>
   </div>
@@ -4548,10 +4552,36 @@ function renderFinancePage(){
 }
 
 /* ============== TERM OVERVIEW PAGE ============== */
+function getTermStats(term, year){
+  // Returns income and expenditure totals for a given term/year
+  const pays = DB.payments.filter(p=>p.term===term && String(p.year)===String(year));
+  const inc = {
+    tuition:  pays.reduce((s,p)=>s+(p.tuitionPaid||0),0),
+    lunch:    pays.reduce((s,p)=>s+(p.lunchPaid||0),0),
+    boarding: pays.reduce((s,p)=>s+(p.boardingPaid||0),0),
+    arrears:  pays.reduce((s,p)=>s+(p.arrearsPaid||0),0),
+  };
+  inc.total = inc.tuition+inc.lunch+inc.boarding+inc.arrears;
+
+  const exps = (DB.expenditures||[]).filter(e=>e.term===term && String(e.year)===String(year));
+  const expByCategory = {};
+  EXPENSE_CATEGORIES.forEach(c=>{ expByCategory[c]=0; });
+  exps.forEach(e=>{ const cat=e.category||e.group||'Other Expenses'; expByCategory[cat]=(expByCategory[cat]||0)+(Number(e.amount)||0); });
+  const expTotal = Object.values(expByCategory).reduce((a,b)=>a+b,0);
+
+  const activePupils = DB.pupils.filter(p=>isActive(p));
+  const expected = activePupils.reduce((s,p)=>s+currentTermFee(p),0);
+  const collRate = expected>0?Math.round(inc.total/expected*100):0;
+
+  return { inc, expTotal, expByCategory, expected, collRate, surplus: inc.total-expTotal };
+}
+
 function renderTermOverview(){
   const terms = DB.terms||['Term 1','Term 2','Term 3'];
   const termSel = document.getElementById('tov-term');
   const yearSel = document.getElementById('tov-year');
+  const viewSel = document.getElementById('tov-view');
+
   if(termSel && termSel.options.length===0){
     terms.forEach(t=>{ const o=document.createElement('option'); o.value=o.textContent=t; termSel.appendChild(o); });
     termSel.value = DB.currentTerm;
@@ -4560,33 +4590,143 @@ function renderTermOverview(){
     [DB.academicYear, DB.academicYear-1].forEach(y=>{ const o=document.createElement('option'); o.value=o.textContent=y; yearSel.appendChild(o); });
     yearSel.value = DB.academicYear;
   }
-  const term = termSel ? termSel.value : DB.currentTerm;
-  const year = yearSel ? yearSel.value : DB.academicYear;
-  const area = document.getElementById('termoverview-area');
+  const view  = viewSel ? viewSel.value : 'comparison';
+  const term  = termSel ? termSel.value : DB.currentTerm;
+  const year  = yearSel ? yearSel.value : DB.academicYear;
+  const area  = document.getElementById('termoverview-area');
 
-  // INCOME
+  // Hide/show the single-term selectors
+  if(termSel) termSel.style.display = view==='single' ? '' : 'none';
+
+  if(view === 'comparison'){
+    renderTermComparison(year, area);
+  } else {
+    renderSingleTermDetail(term, year, area);
+  }
+}
+
+function renderTermComparison(year, area){
+  const terms = DB.terms||['Term 1','Term 2','Term 3'];
+  const stats = terms.map(t=>({ term:t, ...getTermStats(t, year) }));
+  const maxInc = Math.max(...stats.map(s=>s.inc.total), 1);
+  const maxExp = Math.max(...stats.map(s=>s.expTotal), 1);
+
+  area.innerHTML = `
+    <div style="text-align:center;margin-bottom:20px;">
+      <div style="font-size:20px;font-weight:800;">KABAGA JUNIOR SCHOOL</div>
+      <div style="font-size:15px;font-weight:700;color:#1B2C5E;margin-top:4px;">TERM PERFORMANCE COMPARISON — ${year}</div>
+      <div style="font-size:11px;color:var(--ink-soft);margin-top:4px;">Prepared by ${CURRENT_USER?CURRENT_USER.name:''} · ${new Date().toLocaleDateString('en-UG',{day:'2-digit',month:'long',year:'numeric'})}</div>
+    </div>
+
+    <!-- SUMMARY COMPARISON TABLE -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title">📊 Income vs Expenditure — All Terms ${year}</div>
+      <div class="table-wrap">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#1B2C5E;color:#fff;">
+              <th style="padding:10px 14px;text-align:left;">Category</th>
+              ${terms.map(t=>`<th style="padding:10px 14px;text-align:right;">${t}</th>`).join('')}
+              <th style="padding:10px 14px;text-align:right;">Full Year Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- INCOME ROWS -->
+            <tr style="background:#EEF2FB;font-weight:700;">
+              <td colspan="${terms.length+2}" style="padding:8px 14px;color:#1B2C5E;">📥 INCOME</td>
+            </tr>
+            ${['tuition','lunch','boarding','arrears'].map(key=>{
+              const labels={tuition:'Tuition Fees',lunch:'Lunch Fees',boarding:'Boarding Fees',arrears:'Arrears Collected'};
+              const vals = stats.map(s=>s.inc[key]);
+              const total = vals.reduce((a,b)=>a+b,0);
+              return `<tr style="border-bottom:1px solid #F0EBE3;">
+                <td style="padding:8px 14px;">${labels[key]}</td>
+                ${vals.map(v=>`<td style="padding:8px 14px;text-align:right;color:#2F6B3A;font-weight:600;">${fmtUGX(v)}</td>`).join('')}
+                <td style="padding:8px 14px;text-align:right;font-weight:800;color:#2F6B3A;">${fmtUGX(total)}</td>
+              </tr>`;
+            }).join('')}
+            <tr style="background:#E7F1E5;font-weight:800;">
+              <td style="padding:10px 14px;">TOTAL INCOME</td>
+              ${stats.map(s=>`<td style="padding:10px 14px;text-align:right;color:#2F6B3A;font-size:14px;">${fmtUGX(s.inc.total)}</td>`).join('')}
+              <td style="padding:10px 14px;text-align:right;color:#2F6B3A;font-size:14px;">${fmtUGX(stats.reduce((a,s)=>a+s.inc.total,0))}</td>
+            </tr>
+
+            <!-- EXPENDITURE ROWS -->
+            <tr style="background:#FBEAEA;font-weight:700;">
+              <td colspan="${terms.length+2}" style="padding:8px 14px;color:#8C2A2A;">📤 EXPENDITURE</td>
+            </tr>
+            ${EXPENSE_CATEGORIES.filter(c=>stats.some(s=>s.expByCategory[c]>0)).map(c=>{
+              const vals = stats.map(s=>s.expByCategory[c]||0);
+              const total = vals.reduce((a,b)=>a+b,0);
+              return `<tr style="border-bottom:1px solid #F0EBE3;">
+                <td style="padding:8px 14px;font-size:12px;">${c}</td>
+                ${vals.map(v=>`<td style="padding:8px 14px;text-align:right;color:#A33345;">${v>0?fmtUGX(v):'—'}</td>`).join('')}
+                <td style="padding:8px 14px;text-align:right;font-weight:700;color:#A33345;">${fmtUGX(total)}</td>
+              </tr>`;
+            }).join('')}
+            <tr style="background:#FBEAEA;font-weight:800;">
+              <td style="padding:10px 14px;">TOTAL EXPENDITURE</td>
+              ${stats.map(s=>`<td style="padding:10px 14px;text-align:right;color:#A33345;font-size:14px;">${fmtUGX(s.expTotal)}</td>`).join('')}
+              <td style="padding:10px 14px;text-align:right;color:#A33345;font-size:14px;">${fmtUGX(stats.reduce((a,s)=>a+s.expTotal,0))}</td>
+            </tr>
+
+            <!-- SURPLUS / DEFICIT -->
+            <tr style="background:#1B2C5E;color:#fff;font-weight:800;font-size:14px;">
+              <td style="padding:12px 14px;">SURPLUS / (DEFICIT)</td>
+              ${stats.map(s=>`<td style="padding:12px 14px;text-align:right;color:${s.surplus>=0?'#A8D5A2':'#FFB3B3'};">${s.surplus>=0?'+':''}${fmtUGX(s.surplus)}</td>`).join('')}
+              <td style="padding:12px 14px;text-align:right;color:${stats.reduce((a,s)=>a+s.surplus,0)>=0?'#A8D5A2':'#FFB3B3'};">${fmtUGX(stats.reduce((a,s)=>a+s.surplus,0))}</td>
+            </tr>
+            <!-- COLLECTION RATE -->
+            <tr style="background:#EEF2FB;font-weight:700;">
+              <td style="padding:10px 14px;">Collection Rate</td>
+              ${stats.map(s=>`<td style="padding:10px 14px;text-align:right;color:${s.collRate>=80?'#2F6B3A':s.collRate>=50?'#C98A2E':'#A33345'};">${s.collRate}%</td>`).join('')}
+              <td style="padding:10px 14px;text-align:right;color:var(--ink-soft);">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- VISUAL BAR COMPARISON -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      <div class="card">
+        <div class="card-title">📥 Income per Term</div>
+        ${stats.map(s=>`
+          <div style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+              <b>${s.term}</b>
+              <span style="color:#2F6B3A;font-weight:700;">${fmtUGX(s.inc.total)}</span>
+            </div>
+            <div style="background:#F0EBE3;border-radius:6px;height:24px;overflow:hidden;">
+              <div style="width:${Math.round(s.inc.total/maxInc*100)}%;background:#2F6B3A;height:24px;border-radius:6px;transition:width 0.5s;">
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--ink-soft);margin-top:2px;">Collection rate: ${s.collRate}%</div>
+          </div>`).join('')}
+      </div>
+      <div class="card">
+        <div class="card-title">📤 Expenditure per Term</div>
+        ${stats.map(s=>`
+          <div style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+              <b>${s.term}</b>
+              <span style="color:#A33345;font-weight:700;">${fmtUGX(s.expTotal)}</span>
+            </div>
+            <div style="background:#F0EBE3;border-radius:6px;height:24px;overflow:hidden;">
+              <div style="width:${Math.round(s.expTotal/maxExp*100)}%;background:#A33345;height:24px;border-radius:6px;transition:width 0.5s;">
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--ink-soft);margin-top:2px;">Surplus: ${s.surplus>=0?'+':''}${fmtUGX(s.surplus)}</div>
+          </div>`).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderSingleTermDetail(term, year, area){
+  const s = getTermStats(term, year);
   const pays = DB.payments.filter(p=>p.term===term && String(p.year)===String(year));
-  const incTuition  = pays.reduce((s,p)=>s+(p.tuitionPaid||0),0);
-  const incLunch    = pays.reduce((s,p)=>s+(p.lunchPaid||0),0);
-  const incBoarding = pays.reduce((s,p)=>s+(p.boardingPaid||0),0);
-  const incArrears  = pays.reduce((s,p)=>s+(p.arrearsPaid||0),0);
-  const incTotal    = incTuition+incLunch+incBoarding+incArrears;
-
-  // EXPECTED
-  const activePupils = DB.pupils.filter(p=>isActive(p));
-  const expTuition  = activePupils.reduce((s,p)=>s+tuitionPortion(p),0);
-  const expLunch    = activePupils.reduce((s,p)=>s+lunchPortion(p),0);
-  const expBoarding = activePupils.reduce((s,p)=>s+boardingPortion(p),0);
-  const expTotal    = expTuition+expLunch+expBoarding;
-  const collRate    = expTotal>0?Math.round(incTotal/expTotal*100):0;
-
-  // EXPENDITURE
   const exps = (DB.expenditures||[]).filter(e=>e.term===term && String(e.year)===String(year));
-  const byCategory = {};
-  EXPENSE_CATEGORIES.forEach(c=>{ byCategory[c]=0; });
-  exps.forEach(e=>{ const cat=e.category||e.group||'Other Expenses'; byCategory[cat]=(byCategory[cat]||0)+(Number(e.amount)||0); });
-  const expTotal2 = Object.values(byCategory).reduce((a,b)=>a+b,0);
-  const surplus = incTotal - expTotal2;
 
   area.innerHTML = `
     <div style="text-align:center;margin-bottom:20px;">
@@ -4595,33 +4735,27 @@ function renderTermOverview(){
       <div style="font-size:11px;color:var(--ink-soft);margin-top:4px;">Prepared by ${CURRENT_USER?CURRENT_USER.name:''} · ${new Date().toLocaleDateString('en-UG',{day:'2-digit',month:'long',year:'numeric'})}</div>
     </div>
 
-    <!-- KPI STRIP -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
       <div class="card" style="text-align:center;padding:16px;">
         <div style="font-size:11px;color:var(--ink-soft);">TOTAL COLLECTED</div>
-        <div style="font-size:22px;font-weight:800;color:#2F6B3A;">${fmtUGX(incTotal)}</div>
-        <div style="font-size:11px;color:var(--ink-soft);">of ${fmtUGX(expTotal)} expected</div>
+        <div style="font-size:22px;font-weight:800;color:#2F6B3A;">${fmtUGX(s.inc.total)}</div>
+        <div style="font-size:11px;color:var(--ink-soft);">of ${fmtUGX(s.expected)} expected</div>
       </div>
       <div class="card" style="text-align:center;padding:16px;">
         <div style="font-size:11px;color:var(--ink-soft);">COLLECTION RATE</div>
-        <div style="font-size:22px;font-weight:800;color:${collRate>=80?'#2F6B3A':collRate>=50?'#C98A2E':'#A33345'};">${collRate}%</div>
-        <div style="font-size:11px;color:var(--ink-soft);">${activePupils.length} active pupils</div>
+        <div style="font-size:22px;font-weight:800;color:${s.collRate>=80?'#2F6B3A':s.collRate>=50?'#C98A2E':'#A33345'};">${s.collRate}%</div>
       </div>
       <div class="card" style="text-align:center;padding:16px;">
         <div style="font-size:11px;color:var(--ink-soft);">TOTAL EXPENDITURE</div>
-        <div style="font-size:22px;font-weight:800;color:#A33345;">${fmtUGX(expTotal2)}</div>
-        <div style="font-size:11px;color:var(--ink-soft);">${exps.length} expense entries</div>
+        <div style="font-size:22px;font-weight:800;color:#A33345;">${fmtUGX(s.expTotal)}</div>
       </div>
       <div class="card" style="text-align:center;padding:16px;">
-        <div style="font-size:11px;color:var(--ink-soft);">${surplus>=0?'SURPLUS':'DEFICIT'}</div>
-        <div style="font-size:22px;font-weight:800;color:${surplus>=0?'#2F6B3A':'#A33345'};">${fmtUGX(Math.abs(surplus))}</div>
-        <div style="font-size:11px;color:var(--ink-soft);">Income minus expenditure</div>
+        <div style="font-size:11px;color:var(--ink-soft);">${s.surplus>=0?'SURPLUS':'DEFICIT'}</div>
+        <div style="font-size:22px;font-weight:800;color:${s.surplus>=0?'#2F6B3A':'#A33345'};">${fmtUGX(Math.abs(s.surplus))}</div>
       </div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-
-      <!-- INCOME BREAKDOWN -->
       <div class="card">
         <div class="card-title">📥 Income Breakdown</div>
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -4632,34 +4766,28 @@ function renderTermOverview(){
             <th style="padding:8px;text-align:right;">%</th>
           </tr></thead>
           <tbody>
-            ${[
-              ['Tuition Fees', expTuition, incTuition],
-              ['Lunch Fees', expLunch, incLunch],
-              ['Boarding Fees', expBoarding, incBoarding],
-              ['Arrears Recovery', 0, incArrears],
-            ].map(([label,exp,col])=>{
-              const pct = exp>0?Math.round(col/exp*100):col>0?100:0;
+            ${[['Tuition Fees','tuition',s.expected],['Lunch Fees','lunch',0],['Boarding Fees','boarding',0],['Arrears','arrears',0]].map(([label,key])=>{
+              const col=s.inc[key], exp=key==='tuition'?DB.pupils.filter(p=>isActive(p)).reduce((a,p)=>a+tuitionPortion(p),0):key==='lunch'?DB.pupils.filter(p=>isActive(p)&&takesLunch(p)).reduce((a,p)=>a+lunchPortion(p),0):key==='boarding'?DB.pupils.filter(p=>isActive(p)&&isBoarder(p)).reduce((a,p)=>a+boardingPortion(p),0):0;
+              const pct=exp>0?Math.round(col/exp*100):col>0?100:0;
               return `<tr style="border-bottom:1px solid #F0EBE3;">
                 <td style="padding:8px;">${label}</td>
                 <td style="padding:8px;text-align:right;color:var(--ink-soft);">${exp>0?fmtUGX(exp):'—'}</td>
                 <td style="padding:8px;text-align:right;font-weight:700;color:#2F6B3A;">${fmtUGX(col)}</td>
-                <td style="padding:8px;text-align:right;color:${pct>=80?'#2F6B3A':pct>=50?'#C98A2E':'#A33345'};">${exp>0?pct+'%':'—'}</td>
+                <td style="padding:8px;text-align:right;">${exp>0?pct+'%':'—'}</td>
               </tr>`;
             }).join('')}
           </tbody>
           <tfoot><tr style="background:#1B2C5E;color:#fff;font-weight:800;">
             <td style="padding:10px;">TOTAL</td>
-            <td style="padding:10px;text-align:right;">${fmtUGX(expTotal)}</td>
-            <td style="padding:10px;text-align:right;">${fmtUGX(incTotal)}</td>
-            <td style="padding:10px;text-align:right;">${collRate}%</td>
+            <td style="padding:10px;text-align:right;">${fmtUGX(s.expected)}</td>
+            <td style="padding:10px;text-align:right;">${fmtUGX(s.inc.total)}</td>
+            <td style="padding:10px;text-align:right;">${s.collRate}%</td>
           </tr></tfoot>
         </table>
       </div>
-
-      <!-- EXPENDITURE BREAKDOWN -->
       <div class="card">
         <div class="card-title">📤 Expenditure Breakdown</div>
-        ${expTotal2===0?`<div class="empty">No expenditure recorded for ${term} ${year} yet.</div>`:`
+        ${s.expTotal===0?`<div class="empty">No expenditure recorded for ${term} ${year}.</div>`:`
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
           <thead><tr style="background:#FBEAEA;">
             <th style="padding:8px;text-align:left;">Category</th>
@@ -4667,18 +4795,18 @@ function renderTermOverview(){
             <th style="padding:8px;text-align:right;">%</th>
           </tr></thead>
           <tbody>
-            ${EXPENSE_CATEGORIES.filter(c=>byCategory[c]>0).map(c=>{
-              const pct = expTotal2>0?Math.round(byCategory[c]/expTotal2*100):0;
+            ${EXPENSE_CATEGORIES.filter(c=>s.expByCategory[c]>0).map(c=>{
+              const pct=s.expTotal>0?Math.round(s.expByCategory[c]/s.expTotal*100):0;
               return `<tr style="border-bottom:1px solid #F0EBE3;">
                 <td style="padding:8px;font-size:12px;">${c}</td>
-                <td style="padding:8px;text-align:right;font-weight:700;color:#A33345;">${fmtUGX(byCategory[c])}</td>
+                <td style="padding:8px;text-align:right;font-weight:700;color:#A33345;">${fmtUGX(s.expByCategory[c])}</td>
                 <td style="padding:8px;text-align:right;color:var(--ink-soft);">${pct}%</td>
               </tr>`;
             }).join('')}
           </tbody>
           <tfoot><tr style="background:#8C2A2A;color:#fff;font-weight:800;">
             <td style="padding:10px;">TOTAL</td>
-            <td style="padding:10px;text-align:right;">${fmtUGX(expTotal2)}</td>
+            <td style="padding:10px;text-align:right;">${fmtUGX(s.expTotal)}</td>
             <td style="padding:10px;text-align:right;">100%</td>
           </tr></tfoot>
         </table>`}
@@ -4699,13 +4827,9 @@ function renderTermOverview(){
         </tr></thead>
         <tbody>
         ${ALL_CLASSES.map(c=>{
-          const cp = DB.pupils.filter(p=>p.cls===c && isActive(p));
+          const cp=DB.pupils.filter(p=>p.cls===c&&isActive(p));
           let exp=0,col=0;
-          cp.forEach(p=>{
-            exp+=currentTermFee(p);
-            const paid=getReportPaidTotals(p.id,term,year);
-            col+=paid.tuition+paid.lunch+paid.boarding;
-          });
+          cp.forEach(p=>{ exp+=currentTermFee(p); const paid=getReportPaidTotals(p.id,term,year); col+=paid.tuition+paid.lunch+paid.boarding; });
           const pct=exp>0?Math.round(col/exp*100):0;
           const isN=NURSERY.includes(c);
           return `<tr>
@@ -4732,6 +4856,7 @@ function renderTermOverview(){
 }
 
 /* ============== CLASS REPORTS ============== */
+
 function populateReportTermSelectors(){
   const terms = DB.terms||['Term 1','Term 2','Term 3'];
   const termSel = document.getElementById('report-term');

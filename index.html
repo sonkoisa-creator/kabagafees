@@ -455,11 +455,11 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate):not(#parentResultsGate
 
     <div class="grid-2b">
       <div class="card">
-        <div class="card-title">🏗️ Staff &amp; Development Spending <small>This term, by category</small></div>
+        <div class="card-title">🏗️ Top Spending Categories <small id="sm-staff-term-label">This term, by category</small></div>
         <div id="sm-staff-dev"></div>
       </div>
       <div class="card">
-        <div class="card-title">💼 Whole-School Net Position <small>All income vs. all expenses, all time</small></div>
+        <div class="card-title">💼 This Term Net Position <small id="sm-net-term-label">Income vs. expenses this term</small></div>
         <div id="sm-net-position"></div>
       </div>
     </div>
@@ -2216,19 +2216,36 @@ function renderOverview(){
   document.getElementById('sm-stock-sub').textContent = `${DB.uniformInventory.length} item types`;
 
   const fin = computeFinance();
+  // Current term income and expenditure
+  const termPays = DB.payments.filter(p=>p.term===DB.currentTerm && String(p.year)===String(DB.academicYear));
+  const termIncome = termPays.reduce((s,p)=>s+(p.tuitionPaid||0)+(p.lunchPaid||0)+(p.boardingPaid||0)+(p.arrearsPaid||0),0);
+  const termDirContrib = (DB.directorContributions||[]).filter(d=>d.term===DB.currentTerm && String(d.year)===String(DB.academicYear)).reduce((s,d)=>s+(d.amount||0),0);
+  const termTotalIncome = termIncome + termDirContrib;
+  const termExps = (DB.expenditures||[]).filter(e=>e.term===DB.currentTerm && String(e.year)===String(DB.academicYear));
+  const termExpTotal = termExps.reduce((s,e)=>s+(e.amount||0),0);
+  const termSurplus = termTotalIncome - termExpTotal;
+
+  // Top 4 expense categories this term
+  const termByCat = {};
+  EXPENSE_CATEGORIES.forEach(c=>{ termByCat[c]=0; });
+  termExps.forEach(e=>{ const cat=e.category||e.group||'Other Expenses'; termByCat[cat]=(termByCat[cat]||0)+(Number(e.amount)||0); });
+  const topCats = EXPENSE_CATEGORIES.filter(c=>termByCat[c]>0).sort((a,b)=>termByCat[b]-termByCat[a]).slice(0,4);
+
   document.getElementById('sm-net-position').innerHTML = `
-    <div class="kpi-mini"><span>Total Income (all time)</span><b style="color:#2F6B3A;">${fmtUGX(fin.totalIncome)}</b></div>
-    <div class="kpi-mini"><span>Total Expenses (all time)</span><b style="color:#A33345;">${fmtUGX(fin.totalExpenses)}</b></div>
-    <div class="kpi-mini"><span><b>Net Balance</b></span><b style="color:${fin.net>=0?'#2F6B3A':'#A33345'};font-size:14px;">${fmtUGX(fin.net)}</b></div>
+    <div class="kpi-mini"><span>Fees Collected (${DB.currentTerm})</span><b style="color:#2F6B3A;">${fmtUGX(termIncome)}</b></div>
+    ${termDirContrib>0?`<div class="kpi-mini"><span>Director Contributions (${DB.currentTerm})</span><b style="color:#5B3A8C;">${fmtUGX(termDirContrib)}</b></div>`:''}
+    <div class="kpi-mini"><span>Total Expenditure (${DB.currentTerm})</span><b style="color:#A33345;">${fmtUGX(termExpTotal)}</b></div>
+    <div class="kpi-mini"><span><b>${termSurplus>=0?'Surplus':'Deficit'} (${DB.currentTerm})</b></span><b style="color:${termSurplus>=0?'#2F6B3A':'#A33345'};font-size:14px;">${termSurplus>=0?'+':''}${fmtUGX(termSurplus)}</b></div>
   `;
-  const devTotal = fin.byGroup['Development & Innovation']||0;
-  const staffTotal = fin.byGroup['Staff Costs']||0;
-  document.getElementById('sm-staff-dev').innerHTML = `
-    <div class="kpi-mini"><span>Staff Costs (all time)</span><b>${fmtUGX(staffTotal)}</b></div>
-    <div class="kpi-mini"><span>Development &amp; Innovation (all time)</span><b>${fmtUGX(devTotal)}</b></div>
-    <div class="kpi-mini"><span>Feeding Program (all time)</span><b>${fmtUGX(fin.byGroup['Feeding Program']||0)}</b></div>
-    <div class="kpi-mini"><span>Utilities (all time)</span><b>${fmtUGX(fin.byGroup['Utilities']||0)}</b></div>
-  `;
+  document.getElementById('sm-staff-dev').innerHTML = topCats.length===0
+    ? `<div class="kpi-mini"><span>No expenditure recorded for ${DB.currentTerm} yet</span><b>—</b></div>`
+    : topCats.map(c=>`<div class="kpi-mini"><span>${c}</span><b>${fmtUGX(termByCat[c])}</b></div>`).join('')
+    + `<div class="kpi-mini" style="border-top:1px solid #E5E0D5;margin-top:4px;padding-top:4px;"><span><b>Total Expenditure</b></span><b style="color:#A33345;">${fmtUGX(termExpTotal)}</b></div>`;
+
+  const smNetLabel = document.getElementById('sm-net-term-label');
+  const smStaffLabel = document.getElementById('sm-staff-term-label');
+  if(smNetLabel) smNetLabel.textContent = `Income vs. expenses — ${DB.currentTerm} ${DB.academicYear}`;
+  if(smStaffLabel) smStaffLabel.textContent = `${DB.currentTerm} ${DB.academicYear}, by category`;
 
   document.getElementById('m-exp').textContent = fmtUGX(m.exp);
   document.getElementById('m-pup').textContent = DB.pupils.length + ' pupils';

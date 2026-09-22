@@ -737,11 +737,25 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate):not(#parentResultsGate
 
   <!-- EXPENDITURE -->
   <div class="page" id="page-expenditure">
+    <!-- TERM SELECTOR -->
+    <div class="toolbar no-print" style="margin-bottom:12px;">
+      <label style="font-weight:700;color:var(--ink);">Viewing:</label>
+      <select id="ex-term-filter" onchange="renderExpenditurePage()" style="font-weight:700;min-width:120px;"></select>
+      <select id="ex-year-filter" onchange="renderExpenditurePage()" style="min-width:100px;"></select>
+    </div>
+
+    <!-- METRICS -->
     <div class="metric-row">
-      <div class="metric m-red"><div class="metric-label">Total Expenditure (All Time)</div><div class="metric-value" id="ex-total">—</div></div>
-      <div class="metric m-amber"><div class="metric-label">This Term</div><div class="metric-value" id="ex-term">—</div></div>
-      <div class="metric"><div class="metric-label">Records</div><div class="metric-value" id="ex-count">—</div></div>
-      <div class="metric m-purple"><div class="metric-label">Top Category</div><div class="metric-value" id="ex-top" style="font-size:15px;">—</div></div>
+      <div class="metric m-green"><div class="metric-label">Income Collected (This Term)</div><div class="metric-value" id="ex-income">—</div></div>
+      <div class="metric m-red"><div class="metric-label">Expenditure (This Term)</div><div class="metric-value" id="ex-term">—</div></div>
+      <div class="metric"><div class="metric-label">Surplus / Deficit</div><div class="metric-value" id="ex-surplus">—</div></div>
+      <div class="metric m-purple"><div class="metric-label">Top Expense Category</div><div class="metric-value" id="ex-top" style="font-size:15px;">—</div></div>
+    </div>
+
+    <!-- INCOME VS EXPENDITURE CARD -->
+    <div class="card">
+      <div class="card-title" id="ex-compare-title">📊 Income vs Expenditure Comparison</div>
+      <div id="ex-compare-area"></div>
     </div>
 
     <div class="card">
@@ -773,11 +787,11 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate):not(#parentResultsGate
     </div>
 
     <div class="card">
-      <div class="card-title">💸 Expenditure by Category <small>This term</small></div>
+      <div class="card-title">💸 Expenditure by Category <small id="ex-cat-term-label"></small></div>
       <div id="ex-by-category"></div>
     </div>
     <div class="card">
-      <div class="card-title">📋 Expenditure Records <small>All categories of school spending</small></div>
+      <div class="card-title">📋 Expenditure Records <small id="ex-records-term-label"></small></div>
       <div class="toolbar no-print">
         <input type="text" id="ex-search" placeholder="Search description..." oninput="renderExpenditureTable()">
         <select id="ex-group-filter" onchange="renderExpenditureTable()"><option value="all">All groups</option></select>
@@ -4059,37 +4073,118 @@ function deleteExpenditureConfirm(){
     showToast('Expenditure record deleted', 'success');
   }
 }
+function getSelectedExTerm(){
+  const t = document.getElementById('ex-term-filter');
+  const y = document.getElementById('ex-year-filter');
+  return { term: t ? t.value : DB.currentTerm, year: y ? y.value : String(DB.academicYear) };
+}
+
 function renderExpenditurePage(){
-  renderStaffPage();
-  populateExpenditureGroupOptions();
-  const total = DB.expenditures.reduce((s,e)=>s+e.amount,0);
-  const termTotal = DB.expenditures.filter(e=>e.term===DB.currentTerm && String(e.year)===String(DB.academicYear)).reduce((s,e)=>s+e.amount,0);
-  document.getElementById('ex-total').textContent = fmtUGX(total);
-  document.getElementById('ex-term').textContent = fmtUGX(termTotal);
-  document.getElementById('ex-count').textContent = DB.expenditures.length;
+  // Populate term/year selectors
+  const termSel = document.getElementById('ex-term-filter');
+  const yearSel = document.getElementById('ex-year-filter');
+  if(termSel && termSel.options.length===0){
+    (DB.terms||['Term 1','Term 2','Term 3']).forEach(t=>{ const o=document.createElement('option'); o.value=o.textContent=t; termSel.appendChild(o); });
+    termSel.value = DB.currentTerm;
+  }
+  if(yearSel && yearSel.options.length===0){
+    [DB.academicYear, DB.academicYear-1].forEach(y=>{ const o=document.createElement('option'); o.value=o.textContent=y; yearSel.appendChild(o); });
+    yearSel.value = String(DB.academicYear);
+  }
+
+  const {term, year} = getSelectedExTerm();
+  const label = `${term} ${year}`;
+
+  // Update card labels
+  const catLabel = document.getElementById('ex-cat-term-label');
+  const recLabel = document.getElementById('ex-records-term-label');
+  if(catLabel) catLabel.textContent = label;
+  if(recLabel) recLabel.textContent = label;
+
+  // INCOME for selected term
+  const termPays = DB.payments.filter(p=>p.term===term && String(p.year)===String(year));
+  const termIncome = termPays.reduce((s,p)=>s+(p.tuitionPaid||0)+(p.lunchPaid||0)+(p.boardingPaid||0)+(p.arrearsPaid||0),0);
+
+  // EXPENDITURE for selected term
+  const termExps = DB.expenditures.filter(e=>e.term===term && String(e.year)===String(year));
+  const termTotal = termExps.reduce((s,e)=>s+e.amount,0);
+  const surplus = termIncome - termTotal;
+
+  // Top category
   const byGroup = {};
-  DB.expenditures.forEach(e=>{ byGroup[e.group] = (byGroup[e.group]||0) + e.amount; });
+  termExps.forEach(e=>{ byGroup[e.group] = (byGroup[e.group]||0) + e.amount; });
   const topGroup = Object.keys(byGroup).sort((a,b)=>byGroup[b]-byGroup[a])[0];
+
+  // Update metrics
+  document.getElementById('ex-income').textContent = fmtUGX(termIncome);
+  document.getElementById('ex-term').textContent = fmtUGX(termTotal);
+  const surplusEl = document.getElementById('ex-surplus');
+  if(surplusEl){
+    surplusEl.textContent = (surplus>=0?'+':'')+fmtUGX(Math.abs(surplus));
+    surplusEl.style.color = surplus>=0?'#2F6B3A':'#A33345';
+  }
   document.getElementById('ex-top').textContent = topGroup || '—';
 
+  // INCOME VS EXPENDITURE COMPARISON CARD
+  const compareArea = document.getElementById('ex-compare-area');
+  const maxBar = Math.max(termIncome, termTotal, 1);
+  if(compareArea){
+    compareArea.innerHTML = `
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <b style="color:#2F6B3A;">📥 Income Collected</b>
+          <span style="font-weight:700;color:#2F6B3A;">${fmtUGX(termIncome)}</span>
+        </div>
+        <div style="background:#F0EBE3;border-radius:6px;height:32px;overflow:hidden;">
+          <div style="width:${Math.round(termIncome/maxBar*100)}%;background:#2F6B3A;height:32px;border-radius:6px;"></div>
+        </div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <b style="color:#A33345;">📤 Expenditure</b>
+          <span style="font-weight:700;color:#A33345;">${fmtUGX(termTotal)}</span>
+        </div>
+        <div style="background:#F0EBE3;border-radius:6px;height:32px;overflow:hidden;">
+          <div style="width:${Math.round(termTotal/maxBar*100)}%;background:#A33345;height:32px;border-radius:6px;"></div>
+        </div>
+      </div>
+      <div style="background:${surplus>=0?'#E7F1E5':'#FBEAEA'};border-radius:8px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-weight:800;font-size:14px;color:${surplus>=0?'#2F6B3A':'#A33345'};">${surplus>=0?'✅ SURPLUS':'⚠ DEFICIT'} FOR ${label.toUpperCase()}</div>
+        <div style="font-size:22px;font-weight:800;color:${surplus>=0?'#2F6B3A':'#A33345'};">${surplus>=0?'+':''}${fmtUGX(surplus)}</div>
+      </div>
+      ${termIncome===0&&termTotal===0?'<div class="empty" style="margin-top:12px;">No income or expenditure recorded for '+label+' yet.</div>':''}
+    `;
+  }
+
+  // EXPENDITURE BY CATEGORY
   const byGroupTerm = {};
-  Object.keys(DB.expenditureGroups).forEach(g=>byGroupTerm[g]=0);
-  DB.expenditures.filter(e=>e.term===DB.currentTerm && String(e.year)===String(DB.academicYear)).forEach(e=>{ byGroupTerm[e.group] = (byGroupTerm[e.group]||0) + e.amount; });
+  EXPENSE_CATEGORIES.forEach(c=>{ byGroupTerm[c]=0; });
+  termExps.forEach(e=>{ const cat=e.category||e.group||'Other Expenses'; byGroupTerm[cat]=(byGroupTerm[cat]||0)+e.amount; });
   const maxVal = Math.max(...Object.values(byGroupTerm), 1);
-  document.getElementById('ex-by-category').innerHTML = Object.keys(byGroupTerm).map(g=>{
-    const pct = Math.round(byGroupTerm[g]/maxVal*100);
-    return `<div class="class-row">
-      <div class="class-row-head"><b><span class="cat-tag ${groupTagClass(g)}">${g}</span></b><span>${fmtUGX(byGroupTerm[g])}</span></div>
-      <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:var(--navy);"></div></div>
-    </div>`;
-  }).join('');
+  const activeCats = EXPENSE_CATEGORIES.filter(c=>byGroupTerm[c]>0);
+  document.getElementById('ex-by-category').innerHTML = activeCats.length===0
+    ? `<div class="empty">No expenditure recorded for ${label} yet.</div>`
+    : activeCats.map(c=>{
+        const pct = Math.round(byGroupTerm[c]/termTotal*100);
+        const barW = Math.round(byGroupTerm[c]/maxVal*100);
+        return `<div class="class-row">
+          <div class="class-row-head"><b>${c}</b><span>${fmtUGX(byGroupTerm[c])} <small style="color:var(--ink-soft);">(${pct}%)</small></span></div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${barW}%;background:#A33345;"></div></div>
+        </div>`;
+      }).join('');
+
+  renderStaffPage();
+  populateExpenditureGroupOptions();
   renderExpenditureTable();
 }
 function renderExpenditureTable(){
   const q = (document.getElementById('ex-search').value||'').toLowerCase();
   const gf = document.getElementById('ex-group-filter').value;
-  let rows = [...DB.expenditures].sort((a,b)=>new Date(b.date)-new Date(a.date));
-  rows = rows.filter(e=> e.description.toLowerCase().includes(q) || e.category.toLowerCase().includes(q));
+  const {term, year} = getSelectedExTerm();
+  let rows = [...DB.expenditures]
+    .filter(e=>e.term===term && String(e.year)===String(year))
+    .sort((a,b)=>new Date(b.date)-new Date(a.date));
+  rows = rows.filter(e=> (e.description||'').toLowerCase().includes(q) || (e.category||'').toLowerCase().includes(q));
   rows = rows.filter(e=> gf==='all' || e.group===gf);
   const tb = document.getElementById('expenditure-table');
   if(rows.length===0){

@@ -4101,9 +4101,11 @@ function renderExpenditurePage(){
   if(catLabel) catLabel.textContent = label;
   if(recLabel) recLabel.textContent = label;
 
-  // INCOME for selected term
+  // INCOME for selected term (fees + director contributions)
   const termPays = DB.payments.filter(p=>p.term===term && String(p.year)===String(year));
-  const termIncome = termPays.reduce((s,p)=>s+(p.tuitionPaid||0)+(p.lunchPaid||0)+(p.boardingPaid||0)+(p.arrearsPaid||0),0);
+  const feesIncome = termPays.reduce((s,p)=>s+(p.tuitionPaid||0)+(p.lunchPaid||0)+(p.boardingPaid||0)+(p.arrearsPaid||0),0);
+  const dirIncome = (DB.directorContributions||[]).filter(d=>d.term===term && String(d.year)===String(year)).reduce((s,d)=>s+(d.amount||0),0);
+  const termIncome = feesIncome + dirIncome;
 
   // EXPENDITURE for selected term
   const termExps = DB.expenditures.filter(e=>e.term===term && String(e.year)===String(year));
@@ -4132,24 +4134,36 @@ function renderExpenditurePage(){
     compareArea.innerHTML = `
       <div style="margin-bottom:16px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-          <b style="color:#2F6B3A;">📥 Income Collected</b>
-          <span style="font-weight:700;color:#2F6B3A;">${fmtUGX(termIncome)}</span>
+          <b style="color:#2F6B3A;">📥 Fees Collected</b>
+          <span style="font-weight:700;color:#2F6B3A;">${fmtUGX(feesIncome)}</span>
         </div>
-        <div style="background:#F0EBE3;border-radius:6px;height:32px;overflow:hidden;">
-          <div style="width:${Math.round(termIncome/maxBar*100)}%;background:#2F6B3A;height:32px;border-radius:6px;"></div>
+        <div style="background:#F0EBE3;border-radius:6px;height:24px;overflow:hidden;">
+          <div style="width:${Math.round(feesIncome/maxBar*100)}%;background:#2F6B3A;height:24px;border-radius:6px;"></div>
         </div>
       </div>
+      ${dirIncome>0?`<div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <b style="color:#5B3A8C;">🤝 Director Contributions</b>
+          <span style="font-weight:700;color:#5B3A8C;">${fmtUGX(dirIncome)}</span>
+        </div>
+        <div style="background:#F0EBE3;border-radius:6px;height:24px;overflow:hidden;">
+          <div style="width:${Math.round(dirIncome/maxBar*100)}%;background:#5B3A8C;height:24px;border-radius:6px;"></div>
+        </div>
+      </div>`:''}
       <div style="margin-bottom:16px;">
         <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
           <b style="color:#A33345;">📤 Expenditure</b>
           <span style="font-weight:700;color:#A33345;">${fmtUGX(termTotal)}</span>
         </div>
-        <div style="background:#F0EBE3;border-radius:6px;height:32px;overflow:hidden;">
-          <div style="width:${Math.round(termTotal/maxBar*100)}%;background:#A33345;height:32px;border-radius:6px;"></div>
+        <div style="background:#F0EBE3;border-radius:6px;height:24px;overflow:hidden;">
+          <div style="width:${Math.round(termTotal/maxBar*100)}%;background:#A33345;height:24px;border-radius:6px;"></div>
         </div>
       </div>
       <div style="background:${surplus>=0?'#E7F1E5':'#FBEAEA'};border-radius:8px;padding:14px;display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-weight:800;font-size:14px;color:${surplus>=0?'#2F6B3A':'#A33345'};">${surplus>=0?'✅ SURPLUS':'⚠ DEFICIT'} FOR ${label.toUpperCase()}</div>
+        <div>
+          <div style="font-weight:800;font-size:14px;color:${surplus>=0?'#2F6B3A':'#A33345'};">${surplus>=0?'✅ SURPLUS':'⚠ DEFICIT'} FOR ${label.toUpperCase()}</div>
+          ${dirIncome>0?`<div style="font-size:11px;color:var(--ink-soft);margin-top:2px;">Includes ${fmtUGX(dirIncome)} director contributions</div>`:''}
+        </div>
         <div style="font-size:22px;font-weight:800;color:${surplus>=0?'#2F6B3A':'#A33345'};">${surplus>=0?'+':''}${fmtUGX(surplus)}</div>
       </div>
       ${termIncome===0&&termTotal===0?'<div class="empty" style="margin-top:12px;">No income or expenditure recorded for '+label+' yet.</div>':''}
@@ -4681,13 +4695,16 @@ function renderFinancePage(){
 function getTermStats(term, year){
   // Returns income and expenditure totals for a given term/year
   const pays = DB.payments.filter(p=>p.term===term && String(p.year)===String(year));
+  const dirContr = (DB.directorContributions||[]).filter(d=>d.term===term && String(d.year)===String(year));
+  const dirTotal = dirContr.reduce((s,d)=>s+(d.amount||0),0);
   const inc = {
     tuition:  pays.reduce((s,p)=>s+(p.tuitionPaid||0),0),
     lunch:    pays.reduce((s,p)=>s+(p.lunchPaid||0),0),
     boarding: pays.reduce((s,p)=>s+(p.boardingPaid||0),0),
     arrears:  pays.reduce((s,p)=>s+(p.arrearsPaid||0),0),
+    director: dirTotal,
   };
-  inc.total = inc.tuition+inc.lunch+inc.boarding+inc.arrears;
+  inc.total = inc.tuition+inc.lunch+inc.boarding+inc.arrears+inc.director;
 
   const exps = (DB.expenditures||[]).filter(e=>e.term===term && String(e.year)===String(year));
   const expByCategory = {};
@@ -4761,14 +4778,16 @@ function renderTermComparison(year, area){
             <tr style="background:#EEF2FB;font-weight:700;">
               <td colspan="${terms.length+2}" style="padding:8px 14px;color:#1B2C5E;">📥 INCOME</td>
             </tr>
-            ${['tuition','lunch','boarding','arrears'].map(key=>{
-              const labels={tuition:'Tuition Fees',lunch:'Lunch Fees',boarding:'Boarding Fees',arrears:'Arrears Collected'};
-              const vals = stats.map(s=>s.inc[key]);
+            ${['tuition','lunch','boarding','arrears','director'].map(key=>{
+              const labels={tuition:'Tuition Fees',lunch:'Lunch Fees',boarding:'Boarding Fees',arrears:'Arrears Collected',director:'Director Contributions'};
+              const colors={director:'color:#5B3A8C;'};
+              const vals = stats.map(s=>s.inc[key]||0);
               const total = vals.reduce((a,b)=>a+b,0);
+              if(total===0 && key==='director') return ''; // hide if no director contributions at all
               return `<tr style="border-bottom:1px solid #F0EBE3;">
                 <td style="padding:8px 14px;">${labels[key]}</td>
-                ${vals.map(v=>`<td style="padding:8px 14px;text-align:right;color:#2F6B3A;font-weight:600;">${fmtUGX(v)}</td>`).join('')}
-                <td style="padding:8px 14px;text-align:right;font-weight:800;color:#2F6B3A;">${fmtUGX(total)}</td>
+                ${vals.map(v=>`<td style="padding:8px 14px;text-align:right;${colors[key]||'color:#2F6B3A;'}font-weight:600;">${fmtUGX(v)}</td>`).join('')}
+                <td style="padding:8px 14px;text-align:right;font-weight:800;${colors[key]||'color:#2F6B3A;'}">${fmtUGX(total)}</td>
               </tr>`;
             }).join('')}
             <tr style="background:#E7F1E5;font-weight:800;">
@@ -4892,13 +4911,16 @@ function renderSingleTermDetail(term, year, area){
             <th style="padding:8px;text-align:right;">%</th>
           </tr></thead>
           <tbody>
-            ${[['Tuition Fees','tuition',s.expected],['Lunch Fees','lunch',0],['Boarding Fees','boarding',0],['Arrears','arrears',0]].map(([label,key])=>{
-              const col=s.inc[key], exp=key==='tuition'?DB.pupils.filter(p=>isActive(p)).reduce((a,p)=>a+tuitionPortion(p),0):key==='lunch'?DB.pupils.filter(p=>isActive(p)&&takesLunch(p)).reduce((a,p)=>a+lunchPortion(p),0):key==='boarding'?DB.pupils.filter(p=>isActive(p)&&isBoarder(p)).reduce((a,p)=>a+boardingPortion(p),0):0;
+            ${[['Tuition Fees','tuition'],['Lunch Fees','lunch'],['Boarding Fees','boarding'],['Arrears Collected','arrears'],['Director Contributions','director']].map(([label,key])=>{
+              const col=s.inc[key]||0;
+              const exp=key==='tuition'?DB.pupils.filter(p=>isActive(p)).reduce((a,p)=>a+tuitionPortion(p),0):key==='lunch'?DB.pupils.filter(p=>isActive(p)&&takesLunch(p)).reduce((a,p)=>a+lunchPortion(p),0):key==='boarding'?DB.pupils.filter(p=>isActive(p)&&isBoarder(p)).reduce((a,p)=>a+boardingPortion(p),0):0;
               const pct=exp>0?Math.round(col/exp*100):col>0?100:0;
+              const color=key==='director'?'#5B3A8C':'#2F6B3A';
+              if(col===0&&key==='director') return '';
               return `<tr style="border-bottom:1px solid #F0EBE3;">
                 <td style="padding:8px;">${label}</td>
                 <td style="padding:8px;text-align:right;color:var(--ink-soft);">${exp>0?fmtUGX(exp):'—'}</td>
-                <td style="padding:8px;text-align:right;font-weight:700;color:#2F6B3A;">${fmtUGX(col)}</td>
+                <td style="padding:8px;text-align:right;font-weight:700;color:${color};">${fmtUGX(col)}</td>
                 <td style="padding:8px;text-align:right;">${exp>0?pct+'%':'—'}</td>
               </tr>`;
             }).join('')}

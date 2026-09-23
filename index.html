@@ -2001,7 +2001,7 @@ function updateBackupStatus(){
   if(!el) return;
   const now = new Date();
   el.innerHTML = `Last saved automatically: <b>${now.toLocaleString()}</b><br>
-    Records on this device: <b>${DB.pupils.length}</b> pupils, <b>${DB.payments.length}</b> payment entries, <b>${DB.negotiations.length}</b> negotiation records.`;
+    Records on this device: <b>${DB.pupils.filter(p=>isActive(p)).length}</b> pupils, <b>${DB.payments.length}</b> payment entries, <b>${DB.negotiations.length}</b> negotiation records.`;
 }
 
 /* ============== HELPERS ============== */
@@ -2138,10 +2138,11 @@ function computeMetrics(){
   let bursaryTotal=0, bursaryBeneficiaries=0;
   let arrearsTotal=0, defaultersCount=0;
   let netExpected=0;
-  DB.pupils.forEach(p=>{
-    const due = currentTermFee(p); // term fee only (excl arrears) net of bursary
+  // Only count ACTIVE pupils — left/deferred pupils don't owe fees this term
+  DB.pupils.filter(p=>isActive(p)).forEach(p=>{
+    const due = currentTermFee(p);
     const paid = paidTotals(p.id).tuition + paidTotals(p.id).lunch + paidTotals(p.id).boarding;
-    exp += pupilGrossFee(p); // gross, before bursary
+    exp += pupilGrossFee(p);
     netExpected += due;
     col += paidTotals(p.id).total;
     const bal = balanceDue(p);
@@ -2158,12 +2159,15 @@ function computeMetrics(){
 function renderOverview(){
   const m = computeMetrics();
 
-  const nurseryCount = DB.pupils.filter(p=>NURSERY.includes(p.cls)).length;
-  const primaryCount = DB.pupils.length - nurseryCount;
-  const boarderCount = DB.pupils.filter(p=>isBoarder(p)).length;
-  const dayCount = DB.pupils.length - boarderCount;
-  document.getElementById('sm-total-pupils').textContent = DB.pupils.length;
-  document.getElementById('sm-nursery-primary').textContent = `${nurseryCount} nursery · ${primaryCount} primary`;
+  const activePupils = DB.pupils.filter(p=>isActive(p));
+  const leftCount = DB.pupils.filter(p=>p.enrollmentStatus==='left').length;
+  const deferredCount = DB.pupils.filter(p=>p.enrollmentStatus==='deferred').length;
+  const nurseryCount = activePupils.filter(p=>NURSERY.includes(p.cls)).length;
+  const primaryCount = activePupils.length - nurseryCount;
+  const boarderCount = activePupils.filter(p=>isBoarder(p)).length;
+  const dayCount = activePupils.length - boarderCount;
+  document.getElementById('sm-total-pupils').textContent = activePupils.length;
+  document.getElementById('sm-nursery-primary').textContent = `${nurseryCount} nursery · ${primaryCount} primary${leftCount>0?' · '+leftCount+' left':''}${deferredCount>0?' · '+deferredCount+' deferred':''}`;
   document.getElementById('sm-day-boarding').textContent = `${dayCount} / ${boarderCount}`;
   document.getElementById('sm-director-total').textContent = fmtUGX(DB.directorContributions.reduce((s,d)=>s+d.amount,0));
   document.getElementById('sm-stock-value').textContent = fmtUGX(uniformStockValue());
@@ -2202,7 +2206,7 @@ function renderOverview(){
   if(smStaffLabel) smStaffLabel.textContent = `${DB.currentTerm} ${DB.academicYear}, by category`;
 
   document.getElementById('m-exp').textContent = fmtUGX(m.exp);
-  document.getElementById('m-pup').textContent = DB.pupils.length + ' pupils';
+  document.getElementById('m-pup').textContent = DB.pupils.filter(p=>isActive(p)).length + ' pupils';
   document.getElementById('m-col').textContent = fmtUGX(m.col);
   document.getElementById('m-pct').textContent = m.pct + '% of total';
   document.getElementById('m-out').textContent = fmtUGX(m.outs);
@@ -2213,7 +2217,7 @@ function renderOverview(){
   document.getElementById('m-bursary-total').textContent = fmtUGX(m.bursaryTotal);
   document.getElementById('m-bursary-sub').textContent = 'discount value this term';
   document.getElementById('m-bursary-count').textContent = m.bursaryBeneficiaries;
-  document.getElementById('m-bursary-pct').textContent = DB.pupils.length>0 ? Math.round(m.bursaryBeneficiaries/DB.pupils.length*100)+'% of pupils' : '—';
+  document.getElementById('m-bursary-pct').textContent = DB.pupils.filter(p=>isActive(p)).length>0 ? Math.round(m.bursaryBeneficiaries/DB.pupils.filter(p=>isActive(p)).length*100)+'% of pupils' : '—';
   document.getElementById('m-arrears-total').textContent = fmtUGX(m.arrearsTotal);
   document.getElementById('m-arrears-sub').textContent = 'still owed from before';
   document.getElementById('m-defaulters').textContent = m.defaultersCount;
@@ -2222,7 +2226,7 @@ function renderOverview(){
   document.getElementById('m-net-sub').textContent = 'after bursary discounts';
 
   const cp = document.getElementById('class-progress');
-  if(DB.pupils.length===0){
+  if(DB.pupils.filter(p=>isActive(p)).length===0){
     cp.innerHTML = '<div class="empty">No pupils registered yet.</div>';
   } else {
     const d = {};
@@ -2556,7 +2560,7 @@ function renderPupils(){
       </tr>`;
     }).join('');
   }
-  document.getElementById('stu-count').textContent = `Showing ${rows.length} of ${DB.pupils.length} pupils`;
+  document.getElementById('stu-count').textContent = `Showing ${rows.length} of ${DB.pupils.filter(p=>isActive(p)).length} pupils`;
 }
 
 function openPupilModal(){
@@ -2790,7 +2794,7 @@ function renderBudgetPage(){
   const el = document.getElementById('budget-content');
 
   // ── PUPILS ──────────────────────────────────────────────────────────────
-  const pupils = DB.pupils.filter(p=>p.cls);
+  const pupils = DB.pupils.filter(p=>p.cls && isActive(p));
   const boarders = pupils.filter(p=>isBoarder(p));
   const lunchPupils = pupils.filter(p=>takesLunch(p));
 
@@ -3117,7 +3121,7 @@ function renderResultsPage(){
 function onResultsClassChange(){
   const cls = document.getElementById('res-cls').value;
   const pupilSel = document.getElementById('res-pupil');
-  const pupils = DB.pupils.filter(p=>p.cls===cls).sort((a,b)=>a.name.localeCompare(b.name));
+  const pupils = DB.pupils.filter(p=>p.cls===cls && isActive(p)).sort((a,b)=>a.name.localeCompare(b.name));
   pupilSel.innerHTML = pupils.map(p=>`<option value="${p.id}">${p.name} (${p.id})</option>`).join('') || '<option value="">No pupils in this class</option>';
   loadScoreEntryForm();
 }
@@ -3189,7 +3193,7 @@ function renderResultsOverview(){
   const cls = document.getElementById('res-overview-cls').value;
   const assessmentFilter = document.getElementById('res-overview-assessment').value;
   const subjects = subjectsForClass(cls);
-  const pupils = DB.pupils.filter(p=>p.cls===cls).sort((a,b)=>a.name.localeCompare(b.name));
+  const pupils = DB.pupils.filter(p=>p.cls===cls && isActive(p)).sort((a,b)=>a.name.localeCompare(b.name));
   const records = DB.scores.filter(s=>s.term===DB.currentTerm && s.year===DB.academicYear && (assessmentFilter==='all'||s.assessment===assessmentFilter) && pupils.some(p=>p.id===s.pupilId));
 
   const head = document.getElementById('res-overview-head');
@@ -3453,7 +3457,7 @@ function renderLunchSummary(){
   const totalPaid = DB.payments.reduce((s,p)=>s+p.lunchPaid,0);
   const pct = totalExpected>0 ? Math.round(totalPaid/totalExpected*100) : 0;
   el.innerHTML = `
-    <div class="kpi-mini"><span>Pupils on lunch</span><b>${lunchPupils.length} of ${DB.pupils.length}</b></div>
+    <div class="kpi-mini"><span>Pupils on lunch</span><b>${lunchPupils.length} of ${DB.pupils.filter(p=>isActive(p)).length}</b></div>
     <div class="kpi-mini"><span>Expected</span><b>${fmtUGX(totalExpected)}</b></div>
     <div class="kpi-mini"><span>Collected</span><b style="color:#2F6B3A;">${fmtUGX(totalPaid)}</b></div>
     <div class="progress-bar" style="margin-top:8px;"><div class="progress-fill" style="width:${pct}%;background:${pct>=80?'#2F6B3A':pct>=50?'#C98A2E':'#A33345'};"></div></div>
@@ -5103,7 +5107,7 @@ function printStatement(){
   const cls = document.getElementById('report-cls').value;
   const body = document.getElementById('statement-body');
   const titleEl = document.getElementById('statement-title');
-  let pupilsInClass = cls==='all' ? DB.pupils : DB.pupils.filter(p=>p.cls===cls);
+  let pupilsInClass = cls==="all" ? DB.pupils.filter(p=>isActive(p)) : DB.pupils.filter(p=>p.cls===cls && isActive(p));
   titleEl.textContent = cls==='all' ? `All Classes — Fee Statement (${DB.term})` : `${cls} Class — Fee Statement (${DB.term})`;
   let html = '<table style="width:100%;border-collapse:collapse;margin-top:14px;"><thead><tr style="border-bottom:2px solid #1B2C5E;">';
   html += '<th style="text-align:left;padding:6px;">Pupil</th><th style="text-align:left;padding:6px;">Class</th><th style="text-align:right;padding:6px;">Fee Payable</th><th style="text-align:right;padding:6px;">Paid</th><th style="text-align:right;padding:6px;">Arrears</th><th style="text-align:right;padding:6px;">Balance</th><th style="text-align:left;padding:6px;">Status</th></tr></thead><tbody>';
@@ -5297,7 +5301,7 @@ function downloadReadableBackup(){
   rows.push(['Generated on:', new Date().toLocaleString()]);
   rows.push(['Lunch fee (school-wide):', DB.lunchFee]);
   rows.push(['Boarding fee (school-wide):', DB.boardingFee]);
-  rows.push(['Total pupils:', DB.pupils.length]);
+  rows.push(['Total pupils:', DB.pupils.filter(p=>isActive(p)).length]);
   rows.push(['Total payment records:', DB.payments.length]);
 
   const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');

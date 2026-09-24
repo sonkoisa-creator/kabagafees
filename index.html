@@ -474,19 +474,20 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate):not(#parentResultsGate
   <div class="page" id="page-payments">
     <div class="toolbar no-print">
       <input type="text" id="pay-search" placeholder="Search pupil or receipt #..." oninput="renderPayments()">
-      <select id="pay-status" onchange="renderPayments()">
-        <option value="all">All status</option><option value="paid">Paid</option><option value="partial">Partial</option><option value="unpaid">Unpaid</option><option value="overdue">Overdue</option>
-      </select>
-      <select id="pay-cls" onchange="renderPayments()">
-        <option value="all">All classes</option>
-      </select>
+      <select id="pay-term" onchange="renderPayments()" style="font-weight:700;min-width:120px;"></select>
+      <select id="pay-year" onchange="renderPayments()" style="min-width:100px;"></select>
+      <select id="pay-cls" onchange="renderPayments()"><option value="all">All classes</option></select>
       <button class="btn btn-primary" data-perm="recordPayments" onclick="openPayModal()">＋ Record Payment</button>
     </div>
+    <div id="pay-term-summary" style="margin-bottom:8px;padding:0 2px;"></div>
     <div class="card" style="padding:0;">
       <div class="table-wrap">
       <table>
         <thead><tr>
-          <th></th><th>Pupil</th><th>Class</th><th>Term</th><th>Receipt #</th><th class="right">Tuition</th><th class="right">Lunch</th><th class="right">Boarding</th><th class="right">Balance</th><th>Date</th><th>Status</th><th class="no-print">Receipt</th>
+          <th></th><th>Pupil</th><th>Class</th><th>Receipt #</th>
+          <th class="right">Total</th><th class="right">Tuition</th><th class="right">Lunch</th>
+          <th class="right">Boarding</th><th class="right">Arrears</th>
+          <th>Date</th><th>Method</th><th class="no-print">Actions</th>
         </tr></thead>
         <tbody id="payments-table"></tbody>
       </table>
@@ -928,6 +929,7 @@ body.locked > *:not(#passwordGate):not(#parentLookupGate):not(#parentResultsGate
       <div class="toolbar no-print" style="margin-top:14px;">
         <button class="btn" style="background:var(--red);color:#fff;" id="ss-btn-close" data-perm="closeTerms" onclick="closeCurrentTerm()">🔒 Close Current Term</button>
         <button class="btn btn-navy" id="ss-btn-open" data-perm="closeTerms" onclick="openNewTerm()">➡️ Open New Term</button>
+        <button class="btn" style="background:#C98A2E;color:#fff;" id="ss-btn-reopen" data-perm="closeTerms" onclick="reopenClosedTerm()" title="Reopen a previously closed term to make corrections">🔓 Reopen a Closed Term</button>
         <button class="btn btn-primary" id="ss-btn-promote" data-perm="promotePupils" onclick="promotePupils()">🎓 Promote Pupils</button>
         <button class="btn" style="background:#5B3A8C;color:#fff;" id="ss-btn-archive" data-perm="promotePupils" onclick="archiveAcademicYear()">📦 Archive Academic Year</button>
       </div>
@@ -2291,47 +2293,100 @@ function renderOverview(){
 
 /* ============== PAYMENTS PAGE ============== */
 function renderPayments(){
+  // Populate term/year selectors on first render
+  const termSel = document.getElementById('pay-term');
+  const yearSel = document.getElementById('pay-year');
+  if(termSel && termSel.options.length===0){
+    const allOption = document.createElement('option');
+    allOption.value='all'; allOption.textContent='All terms';
+    termSel.appendChild(allOption);
+    (DB.terms||['Term 1','Term 2','Term 3']).forEach(t=>{
+      const o=document.createElement('option'); o.value=o.textContent=t; termSel.appendChild(o);
+    });
+    termSel.value = DB.currentTerm;
+  }
+  if(yearSel && yearSel.options.length===0){
+    const allOption = document.createElement('option');
+    allOption.value='all'; allOption.textContent='All years';
+    yearSel.appendChild(allOption);
+    [DB.academicYear, DB.academicYear-1].forEach(y=>{
+      const o=document.createElement('option'); o.value=o.textContent=y; yearSel.appendChild(o);
+    });
+    yearSel.value = String(DB.academicYear);
+  }
+
+  // Populate class selector
+  const clsSel = document.getElementById('pay-cls');
+  if(clsSel && clsSel.options.length<=1){
+    ALL_CLASSES.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; clsSel.appendChild(o); });
+  }
+
   const q = (document.getElementById('pay-search').value||'').toLowerCase();
-  const sf = document.getElementById('pay-status').value;
+  const filterTerm = termSel ? termSel.value : DB.currentTerm;
+  const filterYear = yearSel ? yearSel.value : String(DB.academicYear);
   const cl = document.getElementById('pay-cls').value;
+
   let rows = [...DB.payments].sort((a,b)=>new Date(b.date)-new Date(a.date));
   rows = rows.filter(pay=>{
     const p = getPupil(pay.pupilId);
     if(!p) return false;
     const matchQ = p.name.toLowerCase().includes(q) || pay.id.toLowerCase().includes(q);
-    const matchS = sf==='all' || getStatus(p)===sf;
+    const matchT = filterTerm==='all' || pay.term===filterTerm;
+    const matchY = filterYear==='all' || String(pay.year)===String(filterYear);
     const matchC = cl==='all' || p.cls===cl;
-    return matchQ && matchS && matchC;
+    return matchQ && matchT && matchY && matchC;
   });
+
+  // Summary totals for selected term
+  const sumTotal  = rows.reduce((s,p)=>s+(p.tuitionPaid||0)+(p.lunchPaid||0)+(p.boardingPaid||0)+(p.arrearsPaid||0),0);
+  const sumTuition  = rows.reduce((s,p)=>s+(p.tuitionPaid||0),0);
+  const sumLunch    = rows.reduce((s,p)=>s+(p.lunchPaid||0),0);
+  const sumBoarding = rows.reduce((s,p)=>s+(p.boardingPaid||0),0);
+  const sumArrears  = rows.reduce((s,p)=>s+(p.arrearsPaid||0),0);
+  const summaryEl = document.getElementById('pay-term-summary');
+  if(summaryEl){
+    const label = filterTerm==='all'?'All terms':`${filterTerm} ${filterYear==='all'?'':filterYear}`;
+    summaryEl.innerHTML = `<div class="card" style="padding:10px 16px;margin-bottom:0;">
+      <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;">
+        <div><span style="font-size:11px;color:var(--ink-soft);">${label} · ${rows.length} records</span></div>
+        <div><span style="font-size:11px;color:var(--ink-soft);">Total collected</span> <b style="color:#2F6B3A;">${fmtUGX(sumTotal)}</b></div>
+        ${sumTuition>0?`<div><span style="font-size:11px;color:var(--ink-soft);">Tuition</span> <b>${fmtUGX(sumTuition)}</b></div>`:''}
+        ${sumLunch>0?`<div><span style="font-size:11px;color:var(--ink-soft);">Lunch</span> <b>${fmtUGX(sumLunch)}</b></div>`:''}
+        ${sumBoarding>0?`<div><span style="font-size:11px;color:var(--ink-soft);">Boarding</span> <b>${fmtUGX(sumBoarding)}</b></div>`:''}
+        ${sumArrears>0?`<div><span style="font-size:11px;color:var(--ink-soft);">Arrears</span> <b>${fmtUGX(sumArrears)}</b></div>`:''}
+      </div>
+    </div>`;
+  }
+
   const tb = document.getElementById('payments-table');
   if(rows.length===0){
-    tb.innerHTML = `<tr><td colspan="12"><div class="empty">No payment records match your filters.</div></td></tr>`;
+    tb.innerHTML = `<tr><td colspan="12"><div class="empty">No payment records for ${filterTerm==='all'?'any term':filterTerm+' '+filterYear}.</div></td></tr>`;
   } else {
     tb.innerHTML = rows.map((pay,i)=>{
       const p = getPupil(pay.pupilId);
-      const s = getStatus(p);
-      const bal = balanceDue(p);
+      if(!p) return '';
+      const total = (pay.tuitionPaid||0)+(pay.lunchPaid||0)+(pay.boardingPaid||0)+(pay.arrearsPaid||0);
       return `<tr>
         <td><div class="avatar" style="background:${avatarColor(i)};">${initials(p.name)}</div></td>
         <td><b>${p.name}</b>${hasBursary(p)?' <span class="badge badge-bursary">Bursary</span>':''}</td>
         <td>${p.cls}</td>
-        <td style="font-size:12px;color:var(--ink-soft);">${pay.term||'—'} ${pay.year? '— '+pay.year:''}</td>
-        <td style="color:var(--ink-soft);font-size:12px;">${pay.id}</td>
-        <td class="right" style="color:${pay.tuitionPaid>0?'#2F6B3A':'var(--ink-soft)'};">${pay.tuitionPaid>0?fmtUGX(pay.tuitionPaid):'—'}</td>
-        <td class="right" style="color:${pay.lunchPaid>0?'#2F6B3A':'var(--ink-soft)'};">${pay.lunchPaid>0?fmtUGX(pay.lunchPaid):'—'}</td>
+        <td style="font-size:12px;color:var(--ink-soft);">${pay.id}</td>
+        <td class="right" style="font-weight:700;color:#2F6B3A;">${fmtUGX(total)}</td>
+        <td class="right" style="color:${(pay.tuitionPaid||0)>0?'#2F6B3A':'var(--ink-soft)'};">${(pay.tuitionPaid||0)>0?fmtUGX(pay.tuitionPaid):'—'}</td>
+        <td class="right" style="color:${(pay.lunchPaid||0)>0?'#2F6B3A':'var(--ink-soft)'};">${(pay.lunchPaid||0)>0?fmtUGX(pay.lunchPaid):'—'}</td>
         <td class="right" style="color:${(pay.boardingPaid||0)>0?'#2F6B3A':'var(--ink-soft)'};">${(pay.boardingPaid||0)>0?fmtUGX(pay.boardingPaid):'—'}</td>
-        <td class="right" style="font-weight:700;color:${bal>0?'#A33345':'#2F6B3A'};">${bal>0?fmtUGX(bal):'Cleared'}</td>
+        <td class="right" style="color:${(pay.arrearsPaid||0)>0?'#5B3A8C':'var(--ink-soft)'};">${(pay.arrearsPaid||0)>0?fmtUGX(pay.arrearsPaid):'—'}</td>
         <td style="font-size:12px;color:var(--ink-soft);">${pay.date}</td>
-        <td>${statusBadge(s)}</td>
+        <td style="font-size:12px;">${pay.method||'—'}</td>
         <td class="no-print">
           <button class="btn btn-ghost btn-sm" onclick="printReceiptFor('${pay.id}')">🖨️</button>
-          ${can('editPayments')?`<button class="btn btn-ghost btn-sm" onclick="openEditPayment('${pay.id}')" title="Edit this payment">✎</button>
-          <button class="btn btn-ghost btn-sm" style="color:#A33345;" onclick="deletePaymentConfirm('${pay.id}')" title="Delete this payment">🗑️</button>`:''}
+          ${can('editPayments')?`<button class="btn btn-ghost btn-sm" onclick="openEditPayment('${pay.id}')" title="Edit">✎</button>
+          <button class="btn btn-ghost btn-sm" style="color:#A33345;" onclick="deletePaymentConfirm('${pay.id}')" title="Delete">🗑️</button>`:''}
         </td>
       </tr>`;
     }).join('');
   }
-  document.getElementById('pay-count').textContent = `Showing ${rows.length} of ${DB.payments.length} payment records`;
+  document.getElementById('pay-count').textContent = `Showing ${rows.length} of ${DB.payments.length} total payment records`;
 }
 
 function openPayModal(){
@@ -3514,6 +3569,37 @@ function saveBoarding(){
 /* ============== TERM PROGRESSION ENGINE ============== */
 function isTermClosed(term, year){ return DB.closedTerms.some(c=>c.term===term && c.year===year); }
 function closedTermRecord(term, year){ return DB.closedTerms.find(c=>c.term===term && c.year===year); }
+
+function reopenClosedTerm(){
+  if(!can('closeTerms')){ showToast('Only the Director can reopen a closed term.', 'error'); return; }
+  if(DB.closedTerms.length===0){ showToast('No closed terms to reopen.', 'error'); return; }
+
+  // Build a list of closed terms to choose from
+  const options = [...DB.closedTerms].reverse().map(c=>`${c.term} ${c.year}`).join('\n');
+  const choice = prompt(`Which closed term do you want to reopen?\n\nClosed terms:\n${options}\n\nType the term exactly as shown (e.g. "Term 2 2026"):`);
+  if(!choice) return;
+
+  const parts = choice.trim().match(/^(Term \d+)\s+(\d{4})$/i);
+  if(!parts){ showToast('Invalid format. Use e.g. "Term 2 2026"', 'error'); return; }
+  const termName = parts[1];
+  const termYear = parseInt(parts[2]);
+
+  if(!isTermClosed(termName, termYear)){
+    showToast(`${termName} ${termYear} is not in the closed terms list.`, 'error'); return;
+  }
+
+  if(!confirm(`⚠ Reopen ${termName} ${termYear}?\n\nThis will:\n• Remove it from the closed terms list so you can record and edit payments for it\n• Switch the current term back to ${termName} ${termYear}\n• All existing data stays intact\n\nProceed?`)) return;
+
+  // Remove from closedTerms
+  DB.closedTerms = DB.closedTerms.filter(c=>!(c.term===termName && c.year===termYear));
+  // Switch current term back
+  DB.currentTerm = termName;
+  DB.academicYear = termYear;
+  logActivity('Reopened term', `${termName} ${termYear} reopened for corrections by ${CURRENT_USER.name}`);
+  saveAndSync();
+  renderAll();
+  showToast(`${termName} ${termYear} is now open. You can record and edit payments for it.`, 'success');
+}
 function isLastTermOfYear(){ return DB.currentTerm === DB.terms[DB.terms.length-1]; }
 function nextTermName(){
   const idx = DB.terms.indexOf(DB.currentTerm);

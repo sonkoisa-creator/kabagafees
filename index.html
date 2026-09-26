@@ -2019,7 +2019,31 @@ function tuitionPortion(p){ // negotiated tuition only (excludes lunch & boardin
   }
   return DB.fees[p.cls]||0;
 }
-function isActive(p){ return !p.enrollmentStatus || p.enrollmentStatus === 'active'; }
+// ── TERM ORDERING HELPERS ──────────────────────────────────────────────────
+function termIndex(term, year){
+  // Returns a sortable number: year * 10 + termNumber
+  const num = parseInt((term||'Term 1').replace(/\D/g,'')) || 1;
+  return (parseInt(year)||2026) * 10 + num;
+}
+function termAtOrBefore(t1, y1, t2, y2){ return termIndex(t1,y1) <= termIndex(t2,y2); }
+function termAfter(t1, y1, t2, y2){ return termIndex(t1,y1) > termIndex(t2,y2); }
+
+// Is a pupil active in a specific term/year?
+function isActiveInTerm(p, term, year){
+  // Check enrollment start — default to Term 1 2026 for legacy pupils with no enrolledFrom
+  const ef = p.enrolledFrom || {term:'Term 1', year:2026};
+  if(termAfter(ef.term, ef.year, term, year)) return false; // joined after this term
+  // Check if pupil left — leftAfter is the LAST term they attended
+  if(p.leftAfter){
+    if(termAfter(term, year, p.leftAfter.term, p.leftAfter.year)) return false; // left before this term
+  }
+  // Legacy: respect old enrollmentStatus field for backwards compatibility
+  if(!p.leftAfter && p.enrollmentStatus === 'left') return false;
+  if(!p.leftAfter && p.enrollmentStatus === 'deferred') return false;
+  return true;
+}
+// Shorthand for current term
+function isActive(p){ return isActiveInTerm(p, DB.currentTerm, DB.academicYear); }
 function currentTermFee(p){
   if(!isActive(p)) return 0; // left/deferred pupils owe nothing for new term
   return tuitionPortion(p) + lunchPortion(p) + boardingPortion(p);
@@ -2040,8 +2064,11 @@ function totalDue(p){ return currentTermFee(p) + (p.previousArrears||0); }
 function balanceDue(p){
   const paid = paidTotals(p.id);
   const currentPaid = paid.tuition + paid.lunch + paid.boarding;
-  const arrearsBal = Math.max((p.previousArrears||0) - paid.arrears, 0);
   const currentBal = Math.max(currentTermFee(p) - currentPaid, 0);
+  // Only count arrears if the pupil was enrolled in a previous term (not brand new this term)
+  const ef = p.enrolledFrom || {term:'Term 1', year:2026};
+  const isNewThisTerm = ef.term===DB.currentTerm && String(ef.year)===String(DB.academicYear);
+  const arrearsBal = isNewThisTerm ? 0 : Math.max((p.previousArrears||0) - paid.arrears, 0);
   return currentBal + arrearsBal;
 }
 function isDefaulter(p){ return (p.previousArrears||0) - paidTotals(p.id).arrears > 0; }
@@ -2191,11 +2218,17 @@ function renderOverview(){
   termExps.forEach(e=>{ const cat=e.category||e.group||'Other Expenses'; termByCat[cat]=(termByCat[cat]||0)+(Number(e.amount)||0); });
   const topCats = EXPENSE_CATEGORIES.filter(c=>termByCat[c]>0).sort((a,b)=>termByCat[b]-termByCat[a]).slice(0,4);
 
+  const prev = getPreviousTermSurplus(DB.currentTerm, DB.academicYear);
+  const netWithCarryForward = termSurplus + prev.surplus;
   document.getElementById('sm-net-position').innerHTML = `
+    ${prev.surplus!==0?`<div class="kpi-mini"><span>Carried forward from ${prev.term} ${prev.year}</span><b style="color:${prev.surplus>=0?'#2F6B3A':'#A33345'};">${prev.surplus>=0?'+':''}${fmtUGX(prev.surplus)}</b></div>`:''}
     <div class="kpi-mini"><span>Fees Collected (${DB.currentTerm})</span><b style="color:#2F6B3A;">${fmtUGX(termIncome)}</b></div>
     ${termDirContrib>0?`<div class="kpi-mini"><span>Director Contributions (${DB.currentTerm})</span><b style="color:#5B3A8C;">${fmtUGX(termDirContrib)}</b></div>`:''}
     <div class="kpi-mini"><span>Total Expenditure (${DB.currentTerm})</span><b style="color:#A33345;">${fmtUGX(termExpTotal)}</b></div>
-    <div class="kpi-mini"><span><b>${termSurplus>=0?'Surplus':'Deficit'} (${DB.currentTerm})</b></span><b style="color:${termSurplus>=0?'#2F6B3A':'#A33345'};font-size:14px;">${termSurplus>=0?'+':''}${fmtUGX(termSurplus)}</b></div>
+    <div class="kpi-mini" style="border-top:1px solid #E5E0D5;padding-top:6px;margin-top:2px;">
+      <span><b>${netWithCarryForward>=0?'Surplus':'Deficit'} (incl. carry-forward)</b></span>
+      <b style="color:${netWithCarryForward>=0?'#2F6B3A':'#A33345'};font-size:14px;">${netWithCarryForward>=0?'+':''}${fmtUGX(netWithCarryForward)}</b>
+    </div>
   `;
   document.getElementById('sm-staff-dev').innerHTML = topCats.length===0
     ? `<div class="kpi-mini"><span>No expenditure recorded for ${DB.currentTerm} yet</span><b>—</b></div>`
@@ -2233,7 +2266,7 @@ function renderOverview(){
   } else {
     const d = {};
     ALL_CLASSES.forEach(c=>{ d[c]={paid:0,total:0,count:0}; });
-    DB.pupils.forEach(p=>{
+    DB.pupils.filter(p=>isActive(p)).forEach(p=>{
       d[p.cls].paid += paidTotals(p.id).tuition + paidTotals(p.id).lunch + paidTotals(p.id).boarding;
       d[p.cls].total += currentTermFee(p);
       d[p.cls].count++;
@@ -2645,6 +2678,8 @@ function submitPupil(){
     address:document.getElementById('pu-address').value.trim(),
     boarding:document.getElementById('pu-boarding').value || 'Day',
     takesLunch: document.getElementById('pu-lunch').checked,
+    enrolledFrom: {term: DB.currentTerm, year: DB.academicYear}, // term-aware enrollment
+    enrollmentStatus: 'active',
     bursaryPct:0, negotiatedFee:null, bursaryNotes:'', approvedBy:'', previousArrears:0, arrearsNote:''
   });
   logActivity('Registered pupil', `${name} (${newId})`);
@@ -2685,7 +2720,17 @@ function submitEditPupil(){
   p.cls = document.getElementById('ep-cls').value;
   p.boarding = document.getElementById('ep-boarding').value || 'Day';
   p.takesLunch = document.getElementById('ep-lunch').checked;
-  p.enrollmentStatus = document.getElementById('ep-status').value || 'active';
+  const newStatus = document.getElementById('ep-status').value || 'active';
+  const oldStatus = p.enrollmentStatus;
+  p.enrollmentStatus = newStatus;
+  // When marking as left, record which term they left after (current term)
+  if(newStatus === 'left' && oldStatus !== 'left'){
+    p.leftAfter = {term: DB.currentTerm, year: DB.academicYear};
+  }
+  // When reactivating, clear leftAfter
+  if(newStatus === 'active'){
+    p.leftAfter = null;
+  }
   p.parent = document.getElementById('ep-parent').value.trim();
   p.relation = document.getElementById('ep-relation').value;
   p.phone = document.getElementById('ep-phone').value.trim();
@@ -4759,7 +4804,6 @@ function renderFinancePage(){
 
 /* ============== TERM OVERVIEW PAGE ============== */
 function getTermStats(term, year){
-  // Returns income and expenditure totals for a given term/year
   const pays = DB.payments.filter(p=>p.term===term && String(p.year)===String(year));
   const dirContr = (DB.directorContributions||[]).filter(d=>d.term===term && String(d.year)===String(year));
   const dirTotal = dirContr.reduce((s,d)=>s+(d.amount||0),0);
@@ -4778,11 +4822,30 @@ function getTermStats(term, year){
   exps.forEach(e=>{ const cat=e.category||e.group||'Other Expenses'; expByCategory[cat]=(expByCategory[cat]||0)+(Number(e.amount)||0); });
   const expTotal = Object.values(expByCategory).reduce((a,b)=>a+b,0);
 
-  const activePupils = DB.pupils.filter(p=>isActive(p));
-  const expected = activePupils.reduce((s,p)=>s+currentTermFee(p),0);
+  // Use isActiveInTerm — pupils who joined later or left earlier are excluded from THIS term's expected fees
+  const termActivePupils = DB.pupils.filter(p=>isActiveInTerm(p, term, year));
+  const expected = termActivePupils.reduce((s,p)=>
+    s + (DB.fees[p.cls]||0) + (p.takesLunch!==false?DB.lunchFee:0) + (p.boarding==='Boarding'?(DB.boardingFee||0):0)
+  ,0);
   const collRate = expected>0?Math.round(inc.total/expected*100):0;
 
-  return { inc, expTotal, expByCategory, expected, collRate, surplus: inc.total-expTotal };
+  return { inc, expTotal, expByCategory, expected, collRate, surplus: inc.total-expTotal, pupilCount: termActivePupils.length };
+}
+
+// Returns the surplus/deficit from the term immediately before the given term/year
+function getPreviousTermSurplus(term, year){
+  const terms = DB.terms||['Term 1','Term 2','Term 3'];
+  const idx = terms.indexOf(term);
+  let prevTerm, prevYear;
+  if(idx > 0){
+    prevTerm = terms[idx-1];
+    prevYear = year;
+  } else {
+    prevTerm = terms[terms.length-1];
+    prevYear = year - 1;
+  }
+  const prev = getTermStats(prevTerm, prevYear);
+  return { term: prevTerm, year: prevYear, surplus: prev.surplus };
 }
 
 function renderTermOverview(){
@@ -4885,12 +4948,28 @@ function renderTermComparison(year, area){
             <tr style="background:#1B2C5E;color:#fff;font-weight:800;font-size:14px;">
               <td style="padding:12px 14px;">SURPLUS / (DEFICIT)</td>
               ${stats.map(s=>`<td style="padding:12px 14px;text-align:right;color:${s.surplus>=0?'#A8D5A2':'#FFB3B3'};">${s.surplus>=0?'+':''}${fmtUGX(s.surplus)}</td>`).join('')}
-              <td style="padding:12px 14px;text-align:right;color:${stats.reduce((a,s)=>a+s.surplus,0)>=0?'#A8D5A2':'#FFB3B3'};">${fmtUGX(stats.reduce((a,s)=>a+s.surplus,0))}</td>
+              <td style="padding:12px 14px;text-align:right;color:${stats.reduce((a,s)=>a+s.surplus,0)>=0?'#A8D5A2':'#FFB3B3'};">${stats.reduce((a,s)=>a+s.surplus,0)>=0?'+':''}${fmtUGX(stats.reduce((a,s)=>a+s.surplus,0))}</td>
+            </tr>
+            <!-- CARRY FORWARD ROW -->
+            <tr style="background:#2F6B3A;color:#fff;font-weight:700;font-size:13px;">
+              <td style="padding:10px 14px;">📦 Carry-forward into next term</td>
+              ${stats.map((s,i)=>{
+                // carry-forward out of this term = this surplus
+                // net position for next term = this surplus + next term's own surplus
+                return `<td style="padding:10px 14px;text-align:right;color:${s.surplus>=0?'#A8D5A2':'#FFB3B3'};">${s.surplus>=0?'+':''}${fmtUGX(s.surplus)}</td>`;
+              }).join('')}
+              <td style="padding:10px 14px;text-align:right;color:var(--ink-soft);">—</td>
             </tr>
             <!-- COLLECTION RATE -->
             <tr style="background:#EEF2FB;font-weight:700;">
               <td style="padding:10px 14px;">Collection Rate</td>
               ${stats.map(s=>`<td style="padding:10px 14px;text-align:right;color:${s.collRate>=80?'#2F6B3A':s.collRate>=50?'#C98A2E':'#A33345'};">${s.collRate}%</td>`).join('')}
+              <td style="padding:10px 14px;text-align:right;color:var(--ink-soft);">—</td>
+            </tr>
+            <!-- PUPILS THIS TERM -->
+            <tr style="background:#F5F0E8;font-weight:700;">
+              <td style="padding:10px 14px;">Active Pupils</td>
+              ${stats.map(s=>`<td style="padding:10px 14px;text-align:right;">${s.pupilCount||0}</td>`).join('')}
               <td style="padding:10px 14px;text-align:right;color:var(--ink-soft);">—</td>
             </tr>
           </tbody>
@@ -4950,7 +5029,7 @@ function renderSingleTermDetail(term, year, area){
       <div class="card" style="text-align:center;padding:16px;">
         <div style="font-size:11px;color:var(--ink-soft);">TOTAL COLLECTED</div>
         <div style="font-size:22px;font-weight:800;color:#2F6B3A;">${fmtUGX(s.inc.total)}</div>
-        <div style="font-size:11px;color:var(--ink-soft);">of ${fmtUGX(s.expected)} expected</div>
+        <div style="font-size:11px;color:var(--ink-soft);">of ${fmtUGX(s.expected)} expected · ${s.pupilCount||0} pupils</div>
       </div>
       <div class="card" style="text-align:center;padding:16px;">
         <div style="font-size:11px;color:var(--ink-soft);">COLLECTION RATE</div>
@@ -4961,10 +5040,33 @@ function renderSingleTermDetail(term, year, area){
         <div style="font-size:22px;font-weight:800;color:#A33345;">${fmtUGX(s.expTotal)}</div>
       </div>
       <div class="card" style="text-align:center;padding:16px;">
-        <div style="font-size:11px;color:var(--ink-soft);">${s.surplus>=0?'SURPLUS':'DEFICIT'}</div>
-        <div style="font-size:22px;font-weight:800;color:${s.surplus>=0?'#2F6B3A':'#A33345'};">${fmtUGX(Math.abs(s.surplus))}</div>
+        <div style="font-size:11px;color:var(--ink-soft);">${s.surplus>=0?'SURPLUS':'DEFICIT'} THIS TERM</div>
+        <div style="font-size:22px;font-weight:800;color:${s.surplus>=0?'#2F6B3A':'#A33345'};">${s.surplus>=0?'+':''}${fmtUGX(s.surplus)}</div>
       </div>
     </div>
+
+    <!-- CARRY FORWARD FROM PREVIOUS TERM -->
+    ${(()=>{
+      const prev = getPreviousTermSurplus(term, parseInt(year));
+      if(prev.surplus===0) return '';
+      const net = s.surplus + prev.surplus;
+      return `<div style="background:${prev.surplus>=0?'#E7F1E5':'#FBEAEA'};border-radius:8px;padding:12px 16px;margin:12px 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div>
+          <div style="font-weight:700;">📦 Carry-forward from ${prev.term} ${prev.year}</div>
+          <div style="font-size:11px;color:var(--ink-soft);">${prev.surplus>=0?'Previous term surplus — added to income':'Previous term deficit — deducted from income'}</div>
+        </div>
+        <div style="display:flex;gap:24px;">
+          <div style="text-align:right;">
+            <div style="font-size:11px;color:var(--ink-soft);">Carry-forward</div>
+            <b style="color:${prev.surplus>=0?'#2F6B3A':'#A33345'};">${prev.surplus>=0?'+':''}${fmtUGX(prev.surplus)}</b>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px;color:var(--ink-soft);">Net incl. carry-forward</div>
+            <b style="font-size:16px;color:${net>=0?'#2F6B3A':'#A33345'};">${net>=0?'+':''}${fmtUGX(net)}</b>
+          </div>
+        </div>
+      </div>`;
+    })()}
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
       <div class="card">

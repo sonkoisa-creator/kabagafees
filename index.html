@@ -2459,27 +2459,55 @@ function updatePayHint(){
   const id = document.getElementById('pm-pupil').value;
   const p = getPupil(id);
   const hint = document.getElementById('pm-hint');
-  const boardingRow = document.getElementById('pm-boarding-row');
-  if(!p){ hint.innerHTML = 'Select a pupil to see fee balance.'; if(boardingRow) boardingRow.style.display='none'; return; }
+  if(!p){ hint.innerHTML = 'Select a pupil to see fee balance.'; return; }
   const paid = paidTotals(p.id);
-  const balTuition = tuitionPortion(p) - paid.tuition;
-  const arrearsBal = Math.max((p.previousArrears||0) - paid.arrears, 0);
-  const bursaryNote = hasBursary(p) ? ` · <span style="color:#5B3A8C;font-weight:700;">On bursary (${p.bursaryPct||0}% off)</span>` : '';
-  let lunchNote = '';
-  if(takesLunch(p)){
-    const balLunch = lunchPortion(p) - paid.lunch;
-    lunchNote = ` · Lunch balance: <b>${fmtUGX(Math.max(balLunch,0))}</b>`;
-  } else {
-    lunchNote = ` · <span style="color:var(--ink-soft);">Goes home at midday — no lunch fee</span>`;
-  }
-  let boardingNote = '';
-  if(isBoarder(p)){
-    const balBoarding = boardingPortion(p) - paid.boarding;
-    boardingNote = ` · Boarding balance: <b style="color:${balBoarding>0?'#A33345':'#2F6B3A'};">${fmtUGX(Math.max(balBoarding,0))}</b>`;
-  } else {
-    boardingNote = ` · <span style="color:var(--ink-soft);">Day pupil — no boarding fee</span>`;
-  }
-  hint.innerHTML = `<b>${p.name}</b> (${p.cls}) — Tuition+Lunch balance: <b>${fmtUGX(Math.max(balTuition+(takesLunch(p)?lunchPortion(p)-paid.lunch:0),0))}</b>${lunchNote}${boardingNote} · Arrears balance: <b style="color:${arrearsBal>0?'#A33345':'#2F6B3A'};">${fmtUGX(arrearsBal)}</b>${bursaryNote}<br><span style="font-size:11px;color:var(--ink-soft);">Enter the combined amount paid — it's applied automatically: arrears, then lunch, then tuition, then boarding.</span>`;
+
+  const ef = p.enrolledFrom || {term:'Term 1', year:2026};
+  const isNewThisTerm = ef.term===DB.currentTerm && String(ef.year)===String(DB.academicYear);
+  const arrearsOwed = isNewThisTerm ? 0 : (p.previousArrears||0);
+  const arrearsPaid = paid.arrears;
+  const arrearsBal = Math.max(arrearsOwed - arrearsPaid, 0);
+
+  const tuitionOwed = tuitionPortion(p);
+  const tuitionBal = Math.max(tuitionOwed - paid.tuition, 0);
+  const lunchOwed = takesLunch(p) ? lunchPortion(p) : 0;
+  const lunchBal = Math.max(lunchOwed - paid.lunch, 0);
+  const boardingOwed = isBoarder(p) ? boardingPortion(p) : 0;
+  const boardingBal = Math.max(boardingOwed - paid.boarding, 0);
+  const totalBal = arrearsBal + lunchBal + tuitionBal + boardingBal;
+
+  const bursaryNote = hasBursary(p) ? `<span style="color:#5B3A8C;font-weight:700;"> · On bursary (${p.bursaryPct||0}% off)</span>` : '';
+
+  hint.innerHTML = `
+    <div style="margin-bottom:6px;"><b>${p.name}</b> (${p.cls})${bursaryNote}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:6px;margin-bottom:6px;">
+      ${arrearsOwed>0?`<div style="background:#FBEAEA;border-radius:6px;padding:6px 10px;">
+        <div style="font-size:10px;color:var(--ink-soft);">ARREARS BALANCE</div>
+        <div style="font-weight:800;color:${arrearsBal>0?'#A33345':'#2F6B3A'};">${fmtUGX(arrearsBal)}</div>
+        <div style="font-size:10px;color:var(--ink-soft);">of ${fmtUGX(arrearsOwed)} · paid ${fmtUGX(arrearsPaid)}</div>
+      </div>`:''}
+      ${lunchOwed>0?`<div style="background:#F5F0E8;border-radius:6px;padding:6px 10px;">
+        <div style="font-size:10px;color:var(--ink-soft);">LUNCH BALANCE</div>
+        <div style="font-weight:800;color:${lunchBal>0?'#C98A2E':'#2F6B3A'};">${fmtUGX(lunchBal)}</div>
+        <div style="font-size:10px;color:var(--ink-soft);">of ${fmtUGX(lunchOwed)} · paid ${fmtUGX(paid.lunch)}</div>
+      </div>`:'<div style="background:#F5F0E8;border-radius:6px;padding:6px 10px;"><div style="font-size:10px;color:var(--ink-soft);">LUNCH</div><div style="font-size:11px;color:var(--ink-soft);">Goes home at midday</div></div>'}
+      <div style="background:#EEF2FB;border-radius:6px;padding:6px 10px;">
+        <div style="font-size:10px;color:var(--ink-soft);">TUITION BALANCE</div>
+        <div style="font-weight:800;color:${tuitionBal>0?'#1B2C5E':'#2F6B3A'};">${fmtUGX(tuitionBal)}</div>
+        <div style="font-size:10px;color:var(--ink-soft);">of ${fmtUGX(tuitionOwed)} · paid ${fmtUGX(paid.tuition)}</div>
+      </div>
+      ${boardingOwed>0?`<div style="background:#EEF2FB;border-radius:6px;padding:6px 10px;">
+        <div style="font-size:10px;color:var(--ink-soft);">BOARDING BALANCE</div>
+        <div style="font-weight:800;color:${boardingBal>0?'#1B2C5E':'#2F6B3A'};">${fmtUGX(boardingBal)}</div>
+        <div style="font-size:10px;color:var(--ink-soft);">of ${fmtUGX(boardingOwed)} · paid ${fmtUGX(paid.boarding)}</div>
+      </div>`:''}
+      <div style="background:${totalBal>0?'#FBEAEA':'#E7F1E5'};border-radius:6px;padding:6px 10px;">
+        <div style="font-size:10px;color:var(--ink-soft);">TOTAL OUTSTANDING</div>
+        <div style="font-weight:800;font-size:15px;color:${totalBal>0?'#A33345':'#2F6B3A'};">${fmtUGX(totalBal)}</div>
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--ink-soft);">Payment applied automatically: <b>arrears → lunch → tuition → boarding</b></div>
+  `;
 }
 
 function submitPayment(){
@@ -2489,21 +2517,20 @@ function submitPayment(){
   if(isTermClosed(DB.currentTerm, DB.academicYear)){ showToast(`${DB.currentTerm} — ${DB.academicYear} is closed. Open the next term in School Settings before recording new payments.`, 'error'); return; }
   const amountPaid = parseInt(document.getElementById('pm-tuition').value) || 0;
   const paid = paidTotals(p.id);
-  // Auto-allocate the combined amount in order: arrears, then lunch, then tuition, then boarding.
-  const arrearsBalNow = Math.max((p.previousArrears||0) - paid.arrears, 0);
+  // New pupils (joined this term) have no arrears to pay
+  const ef = p.enrolledFrom || {term:'Term 1', year:2026};
+  const isNewThisTerm = ef.term===DB.currentTerm && String(ef.year)===String(DB.academicYear);
+  const arrearsBalNow = isNewThisTerm ? 0 : Math.max((p.previousArrears||0) - paid.arrears, 0);
   const lunchBal = takesLunch(p) ? Math.max(lunchPortion(p) - paid.lunch, 0) : 0;
   const tuitionBal = Math.max(tuitionPortion(p) - paid.tuition, 0);
   const boardingBal = isBoarder(p) ? Math.max(boardingPortion(p) - paid.boarding, 0) : 0;
   let remaining = amountPaid;
-  const arrears = Math.min(remaining, arrearsBalNow);
-  remaining -= arrears;
-  const lunch = takesLunch(p) ? Math.min(remaining, lunchBal) : 0;
-  remaining -= lunch;
-  const tuition = Math.min(remaining, tuitionBal);
-  remaining -= tuition;
-  const boarding = isBoarder(p) ? Math.min(remaining, boardingBal) : 0;
-  remaining -= boarding;
-  // Any leftover beyond all balances is still recorded as tuition (treated as an advance payment).
+  // Allocation order: arrears → lunch → tuition → boarding
+  const arrears = Math.min(remaining, arrearsBalNow); remaining -= arrears;
+  const lunch = takesLunch(p) ? Math.min(remaining, lunchBal) : 0; remaining -= lunch;
+  const tuition = Math.min(remaining, tuitionBal); remaining -= tuition;
+  const boarding = isBoarder(p) ? Math.min(remaining, boardingBal) : 0; remaining -= boarding;
+  // Any leftover is advance tuition
   const tuitionFinal = tuition + remaining;
   const date = document.getElementById('pm-date').value || new Date().toISOString().split('T')[0];
   const method = document.getElementById('pm-method').value;
@@ -3655,28 +3682,56 @@ function activePupils(){ return DB.pupils.filter(p=>p.status!=='Graduated'); }
 
 function closeCurrentTerm(){
   if(isTermClosed(DB.currentTerm, DB.academicYear)){ showToast('This term is already closed.', 'error'); return; }
-  if(!confirm(`Close ${DB.currentTerm} — ${DB.academicYear}?\n\nThis will freeze every pupil's balance for this term and carry forward any unpaid amount as arrears into the next term. This cannot be undone from here.`)) return;
+  if(!confirm(`Close ${DB.currentTerm} — ${DB.academicYear}?\n\nThis will:\n• Calculate each pupil's outstanding balance\n• Carry ONLY the unpaid remainder forward as arrears into the next term\n• Pupils who have paid in full carry forward zero arrears\n\nProceed?`)) return;
+
   let totalExpected=0, totalPaid=0, totalBalance=0;
   const closeDate = new Date().toISOString().split('T')[0];
-  activePupils().forEach(p=>{
+
+  // Only process active pupils for THIS term
+  DB.pupils.filter(p=>isActiveInTerm(p, DB.currentTerm, DB.academicYear)).forEach(p=>{
     const expected = currentTermFee(p);
-    const paid = paidTotals(p.id); // already scoped to the current open term
+    const paid = paidTotals(p.id); // scoped to current open term
     const currentPaid = paid.tuition + paid.lunch + paid.boarding;
     const currentBalance = Math.max(expected - currentPaid, 0);
     const arrearsPaidNow = paid.arrears;
     const openingArrearsBefore = p.previousArrears || 0;
-    const newOpeningArrears = Math.max(openingArrearsBefore - arrearsPaidNow, 0) + currentBalance;
-    p.termHistory.push({term:DB.currentTerm, year:DB.academicYear, cls:p.cls, boarding:p.boarding,
-      expected, paid:currentPaid, balance:currentBalance, openingArrearsBefore, arrearsPaidNow, closedOn:closeDate});
-    if(currentBalance>0){ p.arrearsHistory.push({term:DB.currentTerm, year:DB.academicYear, amount:currentBalance}); }
+
+    // CORRECT carry-forward:
+    // Old arrears remaining (after payments this term) + this term's unpaid balance = new arrears
+    const oldArrearsRemaining = Math.max(openingArrearsBefore - arrearsPaidNow, 0);
+    const newOpeningArrears = oldArrearsRemaining + currentBalance;
+
+    if(!p.termHistory) p.termHistory = [];
+    if(!p.arrearsHistory) p.arrearsHistory = [];
+
+    p.termHistory.push({
+      term: DB.currentTerm, year: DB.academicYear, cls: p.cls, boarding: p.boarding,
+      expected, paid: currentPaid, balance: currentBalance,
+      openingArrearsBefore, arrearsPaidNow, arrearsCarriedForward: newOpeningArrears,
+      closedOn: closeDate
+    });
+
+    if(currentBalance > 0 || oldArrearsRemaining > 0){
+      p.arrearsHistory.push({
+        term: DB.currentTerm, year: DB.academicYear,
+        termBalance: currentBalance, oldArrears: oldArrearsRemaining, total: newOpeningArrears
+      });
+    }
+
+    // Update previousArrears to ONLY the actual remaining balance
     p.previousArrears = newOpeningArrears;
     totalExpected += expected; totalPaid += currentPaid; totalBalance += currentBalance;
   });
-  DB.closedTerms.push({term:DB.currentTerm, year:DB.academicYear, closedOn:closeDate, totalExpected, totalPaid, totalBalance, pupilCount:activePupils().length});
+
+  DB.closedTerms.push({
+    term: DB.currentTerm, year: DB.academicYear, closedOn: closeDate,
+    totalExpected, totalPaid, totalBalance,
+    pupilCount: DB.pupils.filter(p=>isActiveInTerm(p, DB.currentTerm, DB.academicYear)).length
+  });
   logActivity('Closed term', `${DB.currentTerm} — ${DB.academicYear}: Expected ${fmtUGX(totalExpected)}, Collected ${fmtUGX(totalPaid)}, Balance ${fmtUGX(totalBalance)}`);
   saveAndSync();
   renderAll();
-  showToast(`${DB.currentTerm} — ${DB.academicYear} closed. Balances carried forward to the next term.`, 'success');
+  showToast(`${DB.currentTerm} — ${DB.academicYear} closed. Only unpaid balances carried forward as arrears.`, 'success');
 }
 
 function openNewTerm(){

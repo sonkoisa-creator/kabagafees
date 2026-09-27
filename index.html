@@ -3739,7 +3739,36 @@ function openNewTerm(){
   const next = nextTermName();
   if(!next){ showToast('This is the last term of the year — promote pupils, then archive the year to start a new one.', 'error'); return; }
   const feeNote = DB.pendingFees ? `\n\nThe fee schedule you pre-set for ${next} will be applied now.` : `\n\nFees will stay the same as ${DB.currentTerm} unless you set new ones in Fee Setup.`;
-  if(!confirm(`Open ${next} — ${DB.academicYear}?\n\nPupils, balances, bursaries and boarding status will carry forward automatically — no re-registration needed.${feeNote}`)) return;
+  if(!confirm(`Open ${next} — ${DB.academicYear}?\n\nEach pupil's unpaid balance from ${DB.currentTerm} will automatically become their arrears in ${next}.\nPupils who paid in full carry forward zero arrears.\n${feeNote}`)) return;
+
+  const closedTermName = DB.currentTerm;
+  const closedYear = DB.academicYear;
+
+  // Recalculate and set arrears for every active pupil from the closing term
+  let arrearsCount = 0;
+  DB.pupils.filter(p=>isActiveInTerm(p, closedTermName, closedYear)).forEach(p=>{
+    // Get what was actually paid this term
+    const termPayments = DB.payments.filter(pay=>pay.pupilId===p.id && pay.term===closedTermName && String(pay.year)===String(closedYear));
+    const termPaid = {
+      tuition: termPayments.reduce((s,pay)=>s+(pay.tuitionPaid||0),0),
+      lunch:   termPayments.reduce((s,pay)=>s+(pay.lunchPaid||0),0),
+      boarding:termPayments.reduce((s,pay)=>s+(pay.boardingPaid||0),0),
+      arrears: termPayments.reduce((s,pay)=>s+(pay.arrearsPaid||0),0),
+    };
+    // This term's fee balance (what was owed minus what was paid)
+    const termFee = (DB.fees[p.cls]||0) + (p.takesLunch!==false?DB.lunchFee:0) + (p.boarding==='Boarding'?(DB.boardingFee||0):0);
+    const termCurrentPaid = termPaid.tuition + termPaid.lunch + termPaid.boarding;
+    const termBalance = Math.max(termFee - termCurrentPaid, 0);
+    // Old arrears remaining after this term's arrears payments
+    const ef = p.enrolledFrom || {term:'Term 1', year:2026};
+    const wasNewThisTerm = ef.term===closedTermName && String(ef.year)===String(closedYear);
+    const openingArrears = wasNewThisTerm ? 0 : (p.previousArrears||0);
+    const oldArrearsRemaining = Math.max(openingArrears - termPaid.arrears, 0);
+    // New arrears = old unpaid arrears + this term's unpaid balance
+    p.previousArrears = oldArrearsRemaining + termBalance;
+    if(p.previousArrears > 0) arrearsCount++;
+  });
+
   DB.currentTerm = next;
   DB.term = `${DB.currentTerm} — ${DB.academicYear}`;
   if(DB.pendingFees){
@@ -3748,10 +3777,10 @@ function openNewTerm(){
     DB.boardingFee = DB.pendingFees.boardingFee;
     DB.pendingFees = null;
   }
-  logActivity('Opened term', `${next} — ${DB.academicYear}`);
+  logActivity('Opened term', `${next} — ${DB.academicYear} · ${arrearsCount} pupils carrying arrears forward`);
   saveAndSync();
   renderAll();
-  showToast(`${next} — ${DB.academicYear} is now open.`, 'success');
+  showToast(`${next} — ${DB.academicYear} is now open. ${arrearsCount} pupils have arrears carried forward from ${closedTermName}.`, 'success');
 }
 
 function promotePupils(){

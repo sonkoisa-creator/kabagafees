@@ -2604,25 +2604,132 @@ function printReceiptFor(payId){
   if(!pay) return;
   const p = getPupil(pay.pupilId);
   const bal = balanceDue(p);
-  document.getElementById('receipt-body').innerHTML = `
-    <div class="receipt-row"><span>Receipt No.</span><b>${pay.id}</b></div>
-    <div class="receipt-row"><span>Date</span><b>${pay.date}</b></div>
-    <div class="receipt-row"><span>Pupil name</span><b>${p.name}</b></div>
-    <div class="receipt-row"><span>Class</span><b>${p.cls} (${DB.term})</b></div>
-    ${isBoarder(p)?`<div class="receipt-row"><span>Boarding status</span><b style="color:#22568C;">Boarding</b></div>`:''}
-    <div class="receipt-row"><span>Parent / Guardian</span><b>${p.parent||'—'}</b></div>
-    ${hasBursary(p)?`<div class="receipt-row"><span>Bursary applied</span><b style="color:#5B3A8C;">${p.bursaryPct||0}% (${fmtUGX(bursaryAmount(p))})</b></div>`:''}
-    <div class="receipt-row"><span>Tuition paid</span><b>${fmtUGX(pay.tuitionPaid)}</b></div>
-    <div class="receipt-row"><span>Lunch paid</span><b>${fmtUGX(pay.lunchPaid)}</b></div>
-    ${isBoarder(p)?`<div class="receipt-row"><span>Boarding paid</span><b>${fmtUGX(pay.boardingPaid||0)}</b></div>`:''}
-    ${pay.arrearsPaid>0?`<div class="receipt-row"><span>Arrears paid</span><b>${fmtUGX(pay.arrearsPaid)}</b></div>`:''}
-    <div class="receipt-row"><span>Payment method</span><b>${pay.method}</b></div>
-    ${pay.notes?`<div class="receipt-row"><span>Notes</span><b>${pay.notes}</b></div>`:''}
-    <div class="receipt-row total"><span>Amount received</span><span>${fmtUGX(pay.tuitionPaid+pay.lunchPaid+(pay.boardingPaid||0)+(pay.arrearsPaid||0))}</span></div>
-    <div class="receipt-row"><span>Remaining balance (incl. arrears)</span><b style="color:${bal>0?'#A33345':'#2F6B3A'};">${bal>0?fmtUGX(bal):'Fully cleared'}</b></div>
+  const total = (pay.tuitionPaid||0)+(pay.lunchPaid||0)+(pay.boardingPaid||0)+(pay.arrearsPaid||0);
+
+  // Build receipt HTML for both print and image generation
+  const receiptHtml = `
+    <div id="shareable-receipt" style="width:360px;background:#fff;padding:24px;font-family:Arial,sans-serif;border:1px solid #DDD;border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,0.12);">
+      <div style="text-align:center;margin-bottom:16px;">
+        <div style="font-size:18px;font-weight:900;color:#1B2C5E;">KABAGA JUNIOR SCHOOL</div>
+        <div style="font-size:11px;color:#666;">Empowering Minds for Tomorrow</div>
+        <div style="font-size:11px;color:#666;">+256702410475</div>
+        <div style="background:#1B2C5E;color:#fff;font-size:13px;font-weight:700;border-radius:6px;padding:4px 0;margin-top:8px;">OFFICIAL RECEIPT</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:#666;margin-bottom:12px;">
+        <span>Receipt No: <b style="color:#1B2C5E;">${pay.id}</b></span>
+        <span>${pay.date}</span>
+      </div>
+      <div style="border-top:2px dashed #DDD;padding-top:12px;margin-bottom:12px;">
+        ${[
+          ['Pupil', `<b>${p?p.name:'—'}</b>`],
+          ['Class', `${p?p.cls:'—'} · ${pay.term||DB.currentTerm} ${pay.year||DB.academicYear}`],
+          ['Parent / Guardian', p?p.parent||'—':'—'],
+          p&&isBoarder(p)?['Boarding Status','Boarding']:null,
+          p&&hasBursary(p)?['Bursary Applied',`${p.bursaryPct||0}% discount`]:null,
+        ].filter(Boolean).map(([l,v])=>`
+          <div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;">
+            <span style="color:#666;">${l}</span><span>${v}</span>
+          </div>`).join('')}
+      </div>
+      <div style="background:#F5F8FF;border-radius:8px;padding:10px;margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:700;color:#1B2C5E;margin-bottom:6px;">PAYMENT BREAKDOWN</div>
+        ${pay.tuitionPaid>0?`<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span>Tuition</span><span>${fmtUGX(pay.tuitionPaid)}</span></div>`:''}
+        ${pay.lunchPaid>0?`<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span>Lunch</span><span>${fmtUGX(pay.lunchPaid)}</span></div>`:''}
+        ${(pay.boardingPaid||0)>0?`<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span>Boarding</span><span>${fmtUGX(pay.boardingPaid)}</span></div>`:''}
+        ${pay.arrearsPaid>0?`<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span>Arrears</span><span>${fmtUGX(pay.arrearsPaid)}</span></div>`:''}
+        <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:900;color:#2F6B3A;border-top:1px solid #DDD;margin-top:6px;padding-top:6px;">
+          <span>TOTAL RECEIVED</span><span>${fmtUGX(total)}</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-top:1px dashed #DDD;">
+        <span style="color:#666;">Remaining Balance</span>
+        <b style="color:${bal>0?'#A33345':'#2F6B3A'};">${bal>0?fmtUGX(bal):'✓ Fully Cleared'}</b>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;">
+        <span style="color:#666;">Payment Method</span><span>${pay.method||'—'}</span>
+      </div>
+      ${pay.notes?`<div style="font-size:11px;color:#666;font-style:italic;margin-top:4px;">Note: ${pay.notes}</div>`:''}
+      <div style="margin-top:16px;border-top:1px solid #EEE;padding-top:12px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#666;">
+          <span>Received by: <b>${pay.receivedBy||'—'}</b></span>
+          <span style="font-size:10px;color:#AAA;">KJS © ${new Date().getFullYear()}</span>
+        </div>
+      </div>
+    </div>`;
+
+  // Show modal with receipt + action buttons
+  const modal = document.createElement('div');
+  modal.id = 'receipt-share-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:20px;';
+  modal.innerHTML = `
+    ${receiptHtml}
+    <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">
+      <button onclick="window.print()" style="background:#1B2C5E;color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;">🖨️ Print</button>
+      <button onclick="shareReceiptImage('${payId}')" style="background:#25D366;color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;">📲 Share via WhatsApp</button>
+      <button onclick="downloadReceiptImage('${payId}')" style="background:#C98A2E;color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;">⬇️ Save as Image</button>
+      <button onclick="document.getElementById('receipt-share-modal').remove()" style="background:#EEE;color:#333;border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;">✕ Close</button>
+    </div>
   `;
-  document.getElementById('receipt-stamp').textContent = 'Received by: ' + (pay.receivedBy || '________________');
-  window.print();
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e=>{ if(e.target===modal) modal.remove(); });
+}
+
+async function captureReceiptCanvas(payId){
+  const el = document.getElementById('shareable-receipt');
+  if(!el) return null;
+  // Use html2canvas if available, otherwise fall back to basic approach
+  if(typeof html2canvas !== 'undefined'){
+    return await html2canvas(el, {scale:2, backgroundColor:'#ffffff', useCORS:true});
+  }
+  return null;
+}
+
+async function shareReceiptImage(payId){
+  const pay = DB.payments.find(p=>p.id===payId);
+  const pupil = getPupil(pay?.pupilId);
+  const total = pay?(pay.tuitionPaid||0)+(pay.lunchPaid||0)+(pay.boardingPaid||0)+(pay.arrearsPaid||0):0;
+  const bal = pupil?balanceDue(pupil):0;
+  // Build a text receipt for WhatsApp (works on all phones without needing image)
+  const msg = `🏫 *KABAGA JUNIOR SCHOOL*\n📋 *Official Receipt*\n\n`+
+    `Receipt No: *${pay?.id||'—'}*\n`+
+    `Date: ${pay?.date||'—'}\n`+
+    `Pupil: *${pupil?.name||'—'}* (${pupil?.cls||'—'})\n`+
+    `Parent: ${pupil?.parent||'—'}\n`+
+    `Term: ${pay?.term||DB.currentTerm} ${pay?.year||DB.academicYear}\n\n`+
+    `💰 *Payment Breakdown*\n`+
+    (pay?.tuitionPaid>0?`• Tuition: ${fmtUGX(pay.tuitionPaid)}\n`:'')+
+    (pay?.lunchPaid>0?`• Lunch: ${fmtUGX(pay.lunchPaid)}\n`:'')+
+    ((pay?.boardingPaid||0)>0?`• Boarding: ${fmtUGX(pay.boardingPaid)}\n`:'')+
+    (pay?.arrearsPaid>0?`• Arrears: ${fmtUGX(pay.arrearsPaid)}\n`:'')+
+    `✅ *Total Received: ${fmtUGX(total)}*\n\n`+
+    `Remaining Balance: *${bal>0?fmtUGX(bal):'Fully Cleared ✓'}*\n`+
+    `Method: ${pay?.method||'—'}\n`+
+    `Received by: ${pay?.receivedBy||'—'}\n\n`+
+    `_Kabaga Junior School — Empowering Minds for Tomorrow_\n📞 +256702410475`;
+
+  const phone = pupil?.phone||pupil?.phone2||'';
+  const waUrl = `https://wa.me/${phone.replace(/\D/g,'')}?text=${encodeURIComponent(msg)}`;
+  window.open(waUrl, '_blank');
+}
+
+async function downloadReceiptImage(payId){
+  const el = document.getElementById('shareable-receipt');
+  if(!el){ showToast('Receipt not found', 'error'); return; }
+  if(typeof html2canvas === 'undefined'){
+    showToast('Image download requires html2canvas library — printing instead', 'error');
+    window.print(); return;
+  }
+  try{
+    const canvas = await html2canvas(el, {scale:2, backgroundColor:'#ffffff'});
+    const link = document.createElement('a');
+    link.download = `receipt-${payId}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    showToast('Receipt saved as image', 'success');
+  }catch(e){
+    showToast('Could not generate image — try printing instead', 'error');
+    window.print();
+  }
 }
 
 /* ============== PUPILS PAGE ============== */
@@ -3741,25 +3848,40 @@ function openNewTerm(){
   const closedTermName = DB.currentTerm;
   const closedYear = DB.academicYear;
 
-  // Count pupils who have arrears (already set correctly by closeCurrentTerm)
+  // Calculate the surplus/deficit from the closing term
+  const closedStats = getTermStats(closedTermName, closedYear);
+  const carryAmount = closedStats.surplus; // positive = surplus, negative = deficit
+
   const arrearsCount = DB.pupils.filter(p=>isActiveInTerm(p, closedTermName, closedYear) && (p.previousArrears||0) > 0).length;
   const totalArrears = DB.pupils.filter(p=>isActiveInTerm(p, closedTermName, closedYear)).reduce((s,p)=>s+(p.previousArrears||0),0);
 
-  const feeNote = DB.pendingFees ? `\n\nThe fee schedule you pre-set for ${next} will be applied now.` : `\n\nFees will stay the same as ${closedTermName} unless you set new ones in Fee Setup.`;
-  if(!confirm(`Open ${next} — ${closedYear}?\n\n• ${arrearsCount} pupils have unpaid balances carrying forward as arrears (Total: ${fmtUGX(totalArrears)})\n• Pupils who paid in full carry forward zero arrears\n• New pupils registered this term have no arrears${feeNote}\n\nThe closing balance from ${closedTermName} will appear exactly as arrears in ${next}.`)) return;
+  const feeNote = DB.pendingFees ? `\n\nThe fee schedule you pre-set for ${next} will be applied now.` : '';
+  if(!confirm(`Open ${next} — ${closedYear}?\n\n• ${arrearsCount} pupils carry forward ${fmtUGX(totalArrears)} in arrears\n• ${carryAmount>=0?'Surplus':'Deficit'} of ${fmtUGX(Math.abs(carryAmount))} from ${closedTermName} will be ${carryAmount>=0?'added to':'deducted from'} ${next} income${feeNote}`)) return;
 
   DB.currentTerm = next;
   DB.term = `${DB.currentTerm} — ${DB.academicYear}`;
+
+  // Store carry-forward surplus so it appears in Term 3 income
+  if(!DB.surplusCarryForwards) DB.surplusCarryForwards = [];
+  // Remove any existing carry-forward for this term (in case of reopen)
+  DB.surplusCarryForwards = DB.surplusCarryForwards.filter(s=>!(s.toTerm===next && String(s.toYear)===String(closedYear)));
+  DB.surplusCarryForwards.push({
+    fromTerm: closedTermName, fromYear: closedYear,
+    toTerm: next, toYear: closedYear,
+    amount: carryAmount,
+    date: new Date().toISOString().split('T')[0]
+  });
+
   if(DB.pendingFees){
     DB.fees = DB.pendingFees.fees;
     DB.lunchFee = DB.pendingFees.lunchFee;
     DB.boardingFee = DB.pendingFees.boardingFee;
     DB.pendingFees = null;
   }
-  logActivity('Opened term', `${next} — ${closedYear} · ${arrearsCount} pupils carrying ${fmtUGX(totalArrears)} arrears from ${closedTermName}`);
+  logActivity('Opened term', `${next} — ${closedYear} · ${carryAmount>=0?'Surplus':'Deficit'} ${fmtUGX(carryAmount)} carried from ${closedTermName}`);
   saveAndSync();
   renderAll();
-  showToast(`${next} — ${closedYear} is now open. ${arrearsCount} pupils carry ${fmtUGX(totalArrears)} arrears from ${closedTermName}.`, 'success');
+  showToast(`${next} is now open. ${fmtUGX(Math.abs(carryAmount))} ${carryAmount>=0?'surplus':'deficit'} carried forward from ${closedTermName}.`, 'success');
 }
 
 function promotePupils(){
@@ -4877,7 +4999,11 @@ function getTermStats(term, year){
     arrears:  pays.reduce((s,p)=>s+(p.arrearsPaid||0),0),
     director: dirTotal,
   };
-  inc.total = inc.tuition+inc.lunch+inc.boarding+inc.arrears+inc.director;
+  // Include surplus carry-forward from previous term as income
+  const carryFwd = (DB.surplusCarryForwards||[]).find(s=>s.toTerm===term && String(s.toYear)===String(year));
+  const carryAmount = carryFwd ? carryFwd.amount : 0;
+  inc.carryForward = carryAmount;
+  inc.total = inc.tuition+inc.lunch+inc.boarding+inc.arrears+inc.director+carryAmount;
 
   const exps = (DB.expenditures||[]).filter(e=>e.term===term && String(e.year)===String(year));
   const expByCategory = {};
@@ -4970,16 +5096,16 @@ function renderTermComparison(year, area){
             <tr style="background:#EEF2FB;font-weight:700;">
               <td colspan="${terms.length+2}" style="padding:8px 14px;color:#1B2C5E;">📥 INCOME</td>
             </tr>
-            ${['tuition','lunch','boarding','arrears','director'].map(key=>{
-              const labels={tuition:'Tuition Fees',lunch:'Lunch Fees',boarding:'Boarding Fees',arrears:'Arrears Collected',director:'Director Contributions'};
-              const colors={director:'color:#5B3A8C;'};
+            ${['tuition','lunch','boarding','arrears','director','carryForward'].map(key=>{
+              const labels={tuition:'Tuition Fees',lunch:'Lunch Fees',boarding:'Boarding Fees',arrears:'Arrears Collected',director:'Director Contributions',carryForward:'Surplus Carry-forward'};
+              const colors={director:'color:#5B3A8C;',carryForward:'color:#2F6B3A;font-style:italic;'};
               const vals = stats.map(s=>s.inc[key]||0);
               const total = vals.reduce((a,b)=>a+b,0);
-              if(total===0 && key==='director') return ''; // hide if no director contributions at all
-              return `<tr style="border-bottom:1px solid #F0EBE3;">
-                <td style="padding:8px 14px;">${labels[key]}</td>
-                ${vals.map(v=>`<td style="padding:8px 14px;text-align:right;${colors[key]||'color:#2F6B3A;'}font-weight:600;">${fmtUGX(v)}</td>`).join('')}
-                <td style="padding:8px 14px;text-align:right;font-weight:800;${colors[key]||'color:#2F6B3A;'}">${fmtUGX(total)}</td>
+              if(total===0) return '';
+              return `<tr style="border-bottom:1px solid #F0EBE3;${key==='carryForward'?'background:#F5FFF5;':''}">
+                <td style="padding:8px 14px;">${labels[key]}${key==='carryForward'?' <small style="color:var(--ink-soft);">(from prev. term)</small>':''}</td>
+                ${vals.map(v=>`<td style="padding:8px 14px;text-align:right;${colors[key]||'color:#2F6B3A;'}font-weight:600;">${v<0?'('+fmtUGX(Math.abs(v))+')':fmtUGX(v)}</td>`).join('')}
+                <td style="padding:8px 14px;text-align:right;font-weight:800;${colors[key]||'color:#2F6B3A;'}">${total<0?'('+fmtUGX(Math.abs(total))+')':fmtUGX(total)}</td>
               </tr>`;
             }).join('')}
             <tr style="background:#E7F1E5;font-weight:800;">
